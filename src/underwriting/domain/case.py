@@ -5,6 +5,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
+from underwriting.domain.application import Application
+
 
 class CaseStatus(StrEnum):
     """Lifecycle states for an underwriting case."""
@@ -44,7 +46,7 @@ class CaseState(BaseModel):
 
     status: CaseStatus = CaseStatus.RECEIVED
 
-    application: dict[str, Any] | None = None
+    application: Application | None = None
     enrichment: dict[str, Any] | None = None
     risk_assessment: dict[str, Any] | None = None
     recommendation: dict[str, Any] | None = None
