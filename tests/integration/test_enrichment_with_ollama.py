@@ -22,7 +22,6 @@ from underwriting.llm.ollama_client import (
     OllamaLLMClient,
 )
 
-
 DATA_DIR = (
     Path(__file__).resolve().parents[2]
     / "data"
