@@ -2,15 +2,18 @@ import json
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    model_validator,
+)
 
 from underwriting.domain.application import Application
 from underwriting.llm.client import LLMClient, LLMResponse
 
 
 class IntakeStatus(StrEnum):
-    """Outcome of the intake processing stage."""
-
     ACCEPTED = "accepted"
     NEEDS_REVIEW = "needs_review"
     INVALID = "invalid"
@@ -18,76 +21,144 @@ class IntakeStatus(StrEnum):
 
 class IntakeReview(BaseModel):
     """
-    Structured interpretation of the LLM intake review.
+    Structured semantic review produced by the LLM.
 
-    The LLM may flag concerns but cannot modify applicant-provided facts.
+    The LLM reviews only semantic clarity and completeness.
+    It does not make underwriting decisions.
     """
 
     needs_review: bool
-    summary: str
+    summary: str = Field(min_length=1)
     concerns: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_review_consistency(self):
+        """
+        Prevent internally contradictory LLM output.
+
+        A review requiring clarification must identify at least one
+        specific concern. A review that does not require clarification
+        must not contain concerns.
+        """
+
+        if self.needs_review and not self.concerns:
+            raise ValueError(
+                "A review requiring clarification must include concerns."
+            )
+
+        if not self.needs_review and self.concerns:
+            raise ValueError(
+                "A review without clarification must not include concerns."
+            )
+
+        return self
 
 
 class IntakeResult(BaseModel):
-    """Result returned by the standalone intake agent."""
-
     status: IntakeStatus
-
     application: Application | None = None
     review: IntakeReview | None = None
-
     validation_errors: list[str] = Field(default_factory=list)
-
     llm_response: LLMResponse | None = None
 
 
 INTAKE_SYSTEM_PROMPT = """
-You are the intake review component of a synthetic educational
+You are the semantic intake-review component of a synthetic educational
 life-insurance underwriting system.
 
-Your responsibility is limited to reviewing an already validated
-application for obvious internal inconsistencies or information that
-may require clarification.
+The application supplied to you has already passed deterministic schema
+validation.
+
+Your responsibility is to determine whether the applicant-provided
+information is semantically clear and sufficiently specific for the
+automated underwriting workflow to continue.
+
+You may flag clarification needs such as:
+
+- vague or non-specific occupation descriptions
+- ambiguous applicant-provided medical condition descriptions
+- ambiguous medication descriptions
+- information that is technically valid but insufficiently specific for
+  downstream processing
+
+You must distinguish semantic ambiguity from underwriting risk.
 
 You must not:
-- approve or deny insurance coverage
-- calculate an underwriting risk score
+
+- approve or deny the application
+- calculate or estimate a risk score
+- assign a risk tier
+- apply underwriting thresholds
+- decide whether coverage is financially appropriate
+- infer medical conditions not explicitly supplied
+- infer medications not explicitly supplied
 - invent applicant facts
-- modify applicant-provided information
-- assume missing external evidence
-- perform external data enrichment
+- perform external-data enrichment
+- treat age, tobacco use, medical history, occupation, income, or coverage
+  as reasons for rejection merely because they may represent risk factors
+
+Set needs_review=true only when a specific clarification or semantic
+completeness issue exists in the supplied application.
+
+Every concern must be grounded in information actually present in the
+application.
 
 Return JSON only using exactly this structure:
 
 {
-  "needs_review": true or false,
-  "summary": "brief explanation",
-  "concerns": ["concern 1", "concern 2"]
+  "needs_review": true,
+  "summary": "brief semantic intake assessment",
+  "concerns": [
+    "specific evidence-grounded clarification concern"
+  ]
 }
 
-Use an empty concerns list when no clarification concern is identified.
+If no clarification is required, return:
+
+{
+  "needs_review": false,
+  "summary": "brief semantic intake assessment",
+  "concerns": []
+}
 """.strip()
 
 
-def _build_review_prompt(application: Application) -> str:
-    """Build the case-specific prompt for the intake LLM review."""
+def _build_review_prompt(
+    application: Application,
+) -> str:
+    """
+    Build the LLM prompt only from the validated application.
 
-    application_json = application.model_dump_json(indent=2)
+    The LLM does not receive external enrichment data or underwriting
+    policy because those belong to later stages.
+    """
 
     return (
-        "Review the following validated synthetic application.\n\n"
-        f"{application_json}"
+        "Review the following validated applicant-provided information "
+        "for semantic clarity and clarification needs only.\n\n"
+        + json.dumps(
+            application.model_dump(mode="json"),
+            indent=2,
+        )
     )
 
 
-def _parse_intake_review(content: str) -> IntakeReview:
-    """Validate untrusted LLM output against the intake review contract."""
+def _parse_intake_review(
+    content: str,
+) -> IntakeReview:
+    """
+    Parse and validate the structured LLM response.
+    """
 
     try:
         parsed = json.loads(content)
+
         return IntakeReview.model_validate(parsed)
 
-    except (json.JSONDecodeError, ValidationError) as exc:
+    except (
+        json.JSONDecodeError,
+        ValidationError,
+    ) as exc:
         raise ValueError(
             "LLM returned an invalid intake review."
         ) from exc
@@ -96,22 +167,27 @@ def _parse_intake_review(content: str) -> IntakeReview:
 def _format_validation_errors(
     error: ValidationError,
 ) -> list[str]:
-    """Convert Pydantic validation errors into a stable agent result format."""
+    """
+    Convert Pydantic validation errors into stable, readable messages.
+    """
 
-    formatted_errors: list[str] = []
+    errors: list[str] = []
 
     for item in error.errors():
         location = ".".join(
-            str(part)
-            for part in item["loc"]
+            str(part) for part in item["loc"]
         )
+
         message = item["msg"]
 
-        formatted_errors.append(
-            f"{location}: {message}"
-        )
+        if location:
+            errors.append(
+                f"{location}: {message}"
+            )
+        else:
+            errors.append(message)
 
-    return formatted_errors
+    return errors
 
 
 def intake_agent(
@@ -119,10 +195,19 @@ def intake_agent(
     llm_client: LLMClient,
 ) -> IntakeResult:
     """
-    Validate applicant-provided data and perform a bounded LLM review.
+    Validate and semantically review a raw application.
 
-    Deterministic validation remains authoritative. The LLM reviews only
-    successfully validated data and cannot repair or override validation.
+    Responsibility boundary:
+
+    Deterministic code:
+    - validates schema
+    - validates field types and constraints
+    - creates the trusted Application object
+
+    LLM:
+    - reviews semantic clarity
+    - identifies clarification needs
+    - cannot score risk or make underwriting decisions
     """
 
     try:
@@ -133,12 +218,19 @@ def intake_agent(
     except ValidationError as exc:
         return IntakeResult(
             status=IntakeStatus.INVALID,
-            validation_errors=_format_validation_errors(exc),
+            application=None,
+            review=None,
+            validation_errors=(
+                _format_validation_errors(exc)
+            ),
+            llm_response=None,
         )
 
     llm_response = llm_client.generate(
         system_prompt=INTAKE_SYSTEM_PROMPT,
-        user_prompt=_build_review_prompt(application),
+        user_prompt=_build_review_prompt(
+            application
+        ),
     )
 
     review = _parse_intake_review(
@@ -155,5 +247,6 @@ def intake_agent(
         status=status,
         application=application,
         review=review,
+        validation_errors=[],
         llm_response=llm_response,
     )
