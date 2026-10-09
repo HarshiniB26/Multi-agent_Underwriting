@@ -6,7 +6,7 @@ from urllib.request import Request, urlopen
 from underwriting.llm.client import LLMClient, LLMResponse
 
 
-class LLMConnectionError(Exception):
+class LLMConnectionError(ConnectionError):
     """Raised when the configured LLM provider cannot be reached."""
 
 

@@ -108,14 +108,17 @@ You must not:
 - invent underwriting policy
 
 Use evidence_consistency="consistent" when:
+
 - no deterministic discrepancies exist
 - no evidence sources are missing
 
 Use evidence_consistency="inconsistent" when:
+
 - one or more deterministic discrepancies exist
 - no evidence sources are missing
 
 Use evidence_consistency="incomplete" when:
+
 - one or more evidence sources are missing
 
 If both discrepancies and missing evidence exist, use "incomplete"
@@ -124,13 +127,42 @@ because the complete evidence picture is unavailable.
 Every material concern and corroborating relationship must be grounded
 in the supplied application, evidence, or deterministic findings.
 
-Return JSON only using this structure:
+Output requirements:
+
+- Return one JSON object only.
+- Do not include Markdown or explanatory text outside the JSON object.
+- evidence_consistency must be exactly one of:
+  "consistent", "inconsistent", or "incomplete".
+- summary must be a string.
+- material_concerns must be a JSON array of strings only.
+- corroborating_evidence must be a JSON array of strings only.
+- Do not place JSON objects inside material_concerns or
+  corroborating_evidence.
+- Each array item must be a concise evidence-grounded statement.
+
+Example with corroborating evidence:
 
 {
   "evidence_consistency": "consistent",
-  "summary": "brief cross-source evidence synthesis",
+  "summary": "External evidence is consistent with the application.",
   "material_concerns": [],
-  "corroborating_evidence": []
+  "corroborating_evidence": [
+    "Medical evidence corroborates the declared condition.",
+    "Prescription evidence corroborates the declared medication."
+  ]
+}
+
+Example with a material concern:
+
+{
+  "evidence_consistency": "inconsistent",
+  "summary": "External evidence conflicts with an applicant declaration.",
+  "material_concerns": [
+    "External medical evidence conflicts with the declared history."
+  ],
+  "corroborating_evidence": [
+    "Identity evidence is consistent with the application."
+  ]
 }
 """.strip()
 
@@ -295,6 +327,7 @@ def _parse_enrichment_review(
 ) -> EnrichmentReview:
     try:
         parsed = json.loads(content)
+
         return EnrichmentReview.model_validate(parsed)
 
     except (
