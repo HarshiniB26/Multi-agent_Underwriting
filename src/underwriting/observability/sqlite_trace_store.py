@@ -39,6 +39,7 @@ class SQLiteTraceStore(TraceStore):
                     status TEXT NOT NULL,
                     started_at TEXT NOT NULL,
                     duration_ms REAL NOT NULL,
+                    llm_latency_ms REAL NOT NULL DEFAULT 0.0,
                     model TEXT,
                     input_tokens INTEGER NOT NULL,
                     output_tokens INTEGER NOT NULL,
@@ -47,6 +48,10 @@ class SQLiteTraceStore(TraceStore):
                     error_message TEXT
                 )
                 """
+            )
+
+            self._ensure_llm_latency_column(
+                connection
             )
 
             connection.execute(
@@ -65,6 +70,32 @@ class SQLiteTraceStore(TraceStore):
                 """
             )
 
+    @staticmethod
+    def _ensure_llm_latency_column(
+        connection: sqlite3.Connection,
+    ) -> None:
+        """
+        Add llm_latency_ms to databases created by older versions.
+        """
+
+        columns = connection.execute(
+            "PRAGMA table_info(workflow_traces)"
+        ).fetchall()
+
+        column_names = {
+            column["name"]
+            for column in columns
+        }
+
+        if "llm_latency_ms" not in column_names:
+            connection.execute(
+                """
+                ALTER TABLE workflow_traces
+                ADD COLUMN llm_latency_ms
+                    REAL NOT NULL DEFAULT 0.0
+                """
+            )
+
     def record(
         self,
         trace: TraceRecord,
@@ -80,6 +111,7 @@ class SQLiteTraceStore(TraceStore):
                     status,
                     started_at,
                     duration_ms,
+                    llm_latency_ms,
                     model,
                     input_tokens,
                     output_tokens,
@@ -87,7 +119,7 @@ class SQLiteTraceStore(TraceStore):
                     error_type,
                     error_message
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     str(trace.case_id),
@@ -97,6 +129,7 @@ class SQLiteTraceStore(TraceStore):
                     trace.status.value,
                     trace.started_at.isoformat(),
                     trace.duration_ms,
+                    trace.llm_latency_ms,
                     trace.model,
                     trace.input_tokens,
                     trace.output_tokens,
@@ -121,6 +154,7 @@ class SQLiteTraceStore(TraceStore):
                     status,
                     started_at,
                     duration_ms,
+                    llm_latency_ms,
                     model,
                     input_tokens,
                     output_tokens,
@@ -151,6 +185,7 @@ class SQLiteTraceStore(TraceStore):
             status=TraceStatus(row["status"]),
             started_at=row["started_at"],
             duration_ms=row["duration_ms"],
+            llm_latency_ms=row["llm_latency_ms"],
             model=row["model"],
             input_tokens=row["input_tokens"],
             output_tokens=row["output_tokens"],

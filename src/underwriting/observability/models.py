@@ -32,6 +32,11 @@ class TraceRecord(BaseModel):
     )
     duration_ms: float = Field(ge=0)
 
+    llm_latency_ms: float = Field(
+        default=0.0,
+        ge=0,
+    )
+
     model: str | None = None
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)

@@ -26,6 +26,7 @@ def test_sqlite_trace_store_persists_trace(
         attempt=1,
         status=TraceStatus.SUCCESS,
         duration_ms=125.5,
+        llm_latency_ms=110.25,
         model="qwen3:8b",
         input_tokens=200,
         output_tokens=50,
@@ -47,6 +48,7 @@ def test_sqlite_trace_store_persists_trace(
     assert persisted.attempt == 1
     assert persisted.status == TraceStatus.SUCCESS
     assert persisted.duration_ms == 125.5
+    assert persisted.llm_latency_ms == 110.25
     assert persisted.model == "qwen3:8b"
     assert persisted.input_tokens == 200
     assert persisted.output_tokens == 50

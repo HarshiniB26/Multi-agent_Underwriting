@@ -433,6 +433,11 @@ class UnderwritingOrchestrator:
                 status=TraceStatus.SUCCESS,
                 started_at=started_at,
                 duration_ms=duration_ms,
+                llm_latency_ms=(
+                    llm_response.latency_ms
+                    if llm_response is not None
+                    else 0.0
+                ),
                 model=(
                     llm_response.model
                     if llm_response is not None

@@ -674,6 +674,7 @@ def test_successful_traces_capture_llm_metrics(
         assert trace.input_tokens == 100
         assert trace.output_tokens == 25
         assert trace.duration_ms >= 0
+        assert trace.llm_latency_ms == 10
         assert trace.error_type is None
         assert trace.error_message is None
 
