@@ -17,6 +17,7 @@ class CaseStatus(StrEnum):
     RISK_ASSESSED = "risk_assessed"
     RECOMMENDATION_COMPLETED = "recommendation_completed"
     HUMAN_REVIEW = "human_review"
+    PROCESSING_FAILED = "processing_failed"
 
 
 class CaseMetadata(BaseModel):
@@ -26,10 +27,10 @@ class CaseMetadata(BaseModel):
     trace_id: UUID = Field(default_factory=uuid4)
 
     created_at: datetime = Field(
-    default_factory=lambda: datetime.now(UTC)
+        default_factory=lambda: datetime.now(UTC)
     )
     updated_at: datetime = Field(
-    default_factory=lambda: datetime.now(UTC)
+        default_factory=lambda: datetime.now(UTC)
     )
 
     version: int = Field(default=1, ge=1)

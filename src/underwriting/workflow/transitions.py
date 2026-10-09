@@ -10,28 +10,33 @@ _ALLOWED_TRANSITIONS: dict[CaseStatus, frozenset[CaseStatus]] = {
         {
             CaseStatus.INTAKE_COMPLETED,
             CaseStatus.HUMAN_REVIEW,
+            CaseStatus.PROCESSING_FAILED,
         }
     ),
     CaseStatus.INTAKE_COMPLETED: frozenset(
         {
             CaseStatus.ENRICHMENT_COMPLETED,
             CaseStatus.HUMAN_REVIEW,
+            CaseStatus.PROCESSING_FAILED,
         }
     ),
     CaseStatus.ENRICHMENT_COMPLETED: frozenset(
         {
             CaseStatus.RISK_ASSESSED,
             CaseStatus.HUMAN_REVIEW,
+            CaseStatus.PROCESSING_FAILED,
         }
     ),
     CaseStatus.RISK_ASSESSED: frozenset(
         {
             CaseStatus.RECOMMENDATION_COMPLETED,
             CaseStatus.HUMAN_REVIEW,
+            CaseStatus.PROCESSING_FAILED,
         }
     ),
     CaseStatus.RECOMMENDATION_COMPLETED: frozenset(),
     CaseStatus.HUMAN_REVIEW: frozenset(),
+    CaseStatus.PROCESSING_FAILED: frozenset(),
 }
 
 

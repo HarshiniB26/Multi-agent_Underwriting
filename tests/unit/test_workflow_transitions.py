@@ -67,10 +67,31 @@ def test_active_processing_states_can_escalate_to_human_review(status):
 
 
 @pytest.mark.parametrize(
+    "status",
+    [
+        CaseStatus.RECEIVED,
+        CaseStatus.INTAKE_COMPLETED,
+        CaseStatus.ENRICHMENT_COMPLETED,
+        CaseStatus.RISK_ASSESSED,
+    ],
+)
+def test_active_processing_states_can_fail(status):
+    case = CaseState(status=status)
+
+    transitioned = transition_case(
+        case,
+        CaseStatus.PROCESSING_FAILED,
+    )
+
+    assert transitioned.status == CaseStatus.PROCESSING_FAILED
+
+
+@pytest.mark.parametrize(
     "terminal_status",
     [
         CaseStatus.RECOMMENDATION_COMPLETED,
         CaseStatus.HUMAN_REVIEW,
+        CaseStatus.PROCESSING_FAILED,
     ],
 )
 def test_terminal_states_cannot_transition(terminal_status):
