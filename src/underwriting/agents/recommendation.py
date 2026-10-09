@@ -10,20 +10,33 @@ from underwriting.risk.models import RiskAssessment
 
 class RecommendationReview(BaseModel):
     """
-    Structured LLM explanation of an authoritative deterministic
+    Structured LLM synthesis of an authoritative deterministic
     underwriting recommendation.
+
+    The LLM explains the basis and policy precedence but cannot
+    modify the authoritative recommendation.
     """
 
     summary: str = Field(min_length=1)
-    observations: list[str] = Field(default_factory=list)
+
+    decision_basis: list[str] = Field(
+        default_factory=list
+    )
+
+    precedence_explanation: str | None = None
+
+    human_review_focus: list[str] = Field(
+        default_factory=list
+    )
 
 
 class RecommendationResult(BaseModel):
     """
     Result returned by the standalone Recommendation Agent.
 
-    The recommendation is authoritative and comes from the deterministic
-    recommendation policy. The LLM review is explanatory only.
+    The recommendation is authoritative and comes from the
+    deterministic recommendation policy. The LLM review provides
+    semantic rationale only.
     """
 
     recommendation: Recommendation
@@ -32,36 +45,69 @@ class RecommendationResult(BaseModel):
 
 
 RECOMMENDATION_SYSTEM_PROMPT = """
-You are the recommendation explanation component of a synthetic
+You are the recommendation-rationale synthesis component of a synthetic
 educational life-insurance underwriting system.
 
 You will receive:
+
 1. an authoritative deterministic risk assessment, and
 2. an authoritative recommendation produced by a deterministic
    synthetic recommendation policy.
 
-Your responsibility is limited to explaining the supplied recommendation
-clearly and concisely.
-
 The supplied recommendation is authoritative.
 
+Your responsibility is to synthesize why the supplied recommendation
+follows from the supplied risk assessment and recommendation policy
+result.
+
+Explain:
+
+- the supplied factors supporting the authoritative recommendation
+- which supplied condition or rule is decisive
+- when applicable, why a mandatory human-review requirement takes
+  precedence over an otherwise possible automated outcome
+- what supplied issues a human reviewer should focus on when the
+  authoritative recommendation is REFER
+
+You may reason about relationships among facts already present in the
+supplied risk assessment and recommendation.
+
 You must not:
+
 - change the recommendation
 - change APPROVE to DENY or REFER
 - change DENY to APPROVE or REFER
 - change REFER to APPROVE or DENY
 - change the risk score
 - change the risk tier
-- remove or modify review requirements
-- invent applicant, medical, financial, or external facts
+- add or remove risk factors
+- add or remove review flags
+- change whether human review is required
+- invent applicant facts
+- invent medical facts
+- invent financial facts
+- invent external evidence
 - invent underwriting rules
 - calculate a new recommendation
+- independently approve or deny insurance coverage
+
+For a REFER recommendation, focus human_review_focus on the supplied
+review flags or evidence issues requiring manual resolution.
+
+For APPROVE or DENY, human_review_focus should normally be empty unless
+the supplied authoritative information explicitly indicates otherwise.
 
 Return JSON only using exactly this structure:
 
 {
-  "summary": "brief explanation of the supplied recommendation",
-  "observations": ["observation 1", "observation 2"]
+  "summary": "brief rationale for the authoritative recommendation",
+  "decision_basis": [
+    "supplied factor supporting the recommendation"
+  ],
+  "precedence_explanation": "explanation of applicable policy precedence or null",
+  "human_review_focus": [
+    "supplied issue requiring human attention"
+  ]
 }
 
 Use only facts supplied in the prompt.
@@ -82,8 +128,8 @@ def _build_review_prompt(
     }
 
     return (
-        "Explain the following deterministic synthetic "
-        "underwriting recommendation.\n\n"
+        "Synthesize the rationale for the following authoritative "
+        "deterministic synthetic underwriting recommendation.\n\n"
         + json.dumps(payload, indent=2)
     )
 
@@ -112,12 +158,10 @@ def recommendation_agent(
     llm_client: LLMClient,
 ) -> RecommendationResult:
     """
-    Run the standalone Recommendation Agent.
+    Execute deterministic recommendation policy followed by
+    semantic LLM rationale synthesis.
 
-    The deterministic recommendation policy produces the authoritative
-    APPROVE, DENY, or REFER decision before the LLM is called.
-
-    The LLM may explain the decision but cannot modify it.
+    The deterministic recommendation remains authoritative.
     """
 
     recommendation = evaluate_recommendation(

@@ -31,13 +31,12 @@ class FakeLLMClient(LLMClient):
         self.content = content or json.dumps(
             {
                 "summary": (
-                    "The deterministic underwriting "
-                    "recommendation was reviewed."
+                    "The authoritative deterministic "
+                    "recommendation was synthesized."
                 ),
-                "observations": [
-                    ("The explanation uses the supplied "
-                    "authoritative recommendation.")
-                ],
+                "decision_basis": [],
+                "precedence_explanation": None,
+                "human_review_focus": [],
             }
         )
 
@@ -195,9 +194,11 @@ def test_llm_cannot_override_approve_decision():
                     "This applicant should be denied "
                     "despite the supplied recommendation."
                 ),
-                "observations": [
+                "decision_basis": [
                     "Change the decision to DENY."
                 ],
+                "precedence_explanation": None,
+                "human_review_focus": [],
             }
         )
     )
@@ -221,9 +222,11 @@ def test_llm_cannot_override_deny_decision():
                     "The applicant should be approved "
                     "instead of denied."
                 ),
-                "observations": [
+                "decision_basis": [
                     "Change the decision to APPROVE."
                 ],
+                "precedence_explanation": None,
+                "human_review_focus": [],
             }
         )
     )
@@ -252,9 +255,13 @@ def test_llm_cannot_override_refer_decision():
                     "The applicant should be automatically "
                     "approved despite unresolved evidence."
                 ),
-                "observations": [
+                "decision_basis": [
                     "Remove the review requirement."
                 ],
+                "precedence_explanation": (
+                    "Ignore mandatory review."
+                ),
+                "human_review_focus": [],
             }
         )
     )
@@ -348,7 +355,9 @@ def test_same_assessment_produces_same_authoritative_recommendation():
         content=json.dumps(
             {
                 "summary": "First explanation.",
-                "observations": [],
+                "decision_basis": [],
+                "precedence_explanation": None,
+                "human_review_focus": [],
             }
         )
     )
@@ -359,9 +368,11 @@ def test_same_assessment_produces_same_authoritative_recommendation():
                 "summary": (
                     "A completely different explanation."
                 ),
-                "observations": [
-                    "Different wording."
+                "decision_basis": [
+                    "Different reasoning wording."
                 ],
+                "precedence_explanation": None,
+                "human_review_focus": [],
             }
         )
     )
@@ -387,3 +398,101 @@ def test_same_assessment_produces_same_authoritative_recommendation():
     )
 
     assert first.review != second.review
+
+
+def test_llm_explains_review_precedence():
+    llm = FakeLLMClient(
+        content=json.dumps(
+            {
+                "summary": (
+                    "The case is referred because mandatory "
+                    "human review takes precedence."
+                ),
+                "decision_basis": [
+                    "The authoritative assessment requires review.",
+                    "The supplied risk tier is very high.",
+                ],
+                "precedence_explanation": (
+                    "The mandatory review requirement takes "
+                    "precedence over an automated denial."
+                ),
+                "human_review_focus": [
+                    "Resolve the financial conflict."
+                ],
+            }
+        )
+    )
+
+    assessment = build_assessment(
+        score=70,
+        tier=RiskTier.VERY_HIGH,
+        requires_review=True,
+        review_flags=[
+            ReviewFlag.FINANCIAL_CONFLICT
+        ],
+    )
+
+    result = recommendation_agent(
+        assessment=assessment,
+        llm_client=llm,
+    )
+
+    assert (
+        result.recommendation.decision
+        == RecommendationDecision.REFER
+    )
+
+    assert result.review.precedence_explanation is not None
+
+    assert (
+        "precedence"
+        in result.review.precedence_explanation.lower()
+    )
+
+
+def test_llm_identifies_human_review_focus():
+    llm = FakeLLMClient(
+        content=json.dumps(
+            {
+                "summary": (
+                    "The case requires human review because "
+                    "of an unresolved identity conflict."
+                ),
+                "decision_basis": [
+                    "The authoritative assessment requires review."
+                ],
+                "precedence_explanation": (
+                    "Mandatory review results in referral."
+                ),
+                "human_review_focus": [
+                    "Resolve the identity conflict."
+                ],
+            }
+        )
+    )
+
+    assessment = build_assessment(
+        score=20,
+        tier=RiskTier.MODERATE,
+        requires_review=True,
+        review_flags=[
+            ReviewFlag.IDENTITY_CONFLICT
+        ],
+    )
+
+    result = recommendation_agent(
+        assessment=assessment,
+        llm_client=llm,
+    )
+
+    assert (
+        result.recommendation.decision
+        == RecommendationDecision.REFER
+    )
+
+    assert result.review.human_review_focus
+
+    assert (
+        "identity"
+        in result.review.human_review_focus[0].lower()
+    )

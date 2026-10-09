@@ -12,12 +12,30 @@ from underwriting.risk.policy import evaluate_policy
 
 class RiskScoringReview(BaseModel):
     """
-    Structured LLM explanation of an authoritative deterministic
+    Structured LLM synthesis of an authoritative deterministic
     risk assessment.
+
+    The LLM may interpret relationships among supplied factors and
+    evidence, but it cannot modify the authoritative assessment.
     """
 
     summary: str = Field(min_length=1)
-    observations: list[str] = Field(default_factory=list)
+
+    primary_drivers: list[str] = Field(
+        default_factory=list
+    )
+
+    factor_interactions: list[str] = Field(
+        default_factory=list
+    )
+
+    evidence_context: list[str] = Field(
+        default_factory=list
+    )
+
+    review_context: list[str] = Field(
+        default_factory=list
+    )
 
 
 class RiskScoringResult(BaseModel):
@@ -25,7 +43,7 @@ class RiskScoringResult(BaseModel):
     Result returned by the standalone Risk Scoring Agent.
 
     The assessment is authoritative and comes from the deterministic
-    policy engine. The review is explanatory only.
+    policy engine. The LLM review provides semantic synthesis only.
     """
 
     assessment: RiskAssessment
@@ -34,37 +52,80 @@ class RiskScoringResult(BaseModel):
 
 
 RISK_SCORING_SYSTEM_PROMPT = """
-You are the risk-assessment explanation component of a synthetic
-educational life-insurance underwriting system.
+You are the risk-factor synthesis component of a synthetic educational
+life-insurance underwriting system.
 
 You will receive:
+
 1. validated applicant information,
 2. validated synthetic external evidence, and
 3. an authoritative risk assessment calculated by a deterministic
    synthetic underwriting policy engine.
 
-Your responsibility is limited to explaining the supplied risk
-assessment clearly and concisely.
+The deterministic risk assessment is authoritative.
 
-The deterministic policy assessment is authoritative.
+Your responsibility is to synthesize the supplied assessment and
+evidence so that a reviewer can understand:
+
+- which supplied risk factors are the primary drivers of the assessment
+- how multiple supplied risk factors relate to one another
+- whether supplied external evidence corroborates relevant risk factors
+- what supplied review flags or evidence limitations require attention
+
+You may reason about relationships among facts that are explicitly
+present in the supplied application, external evidence, and
+authoritative risk assessment.
+
+For example, if the authoritative assessment contains a diabetes risk
+factor and the supplied prescription evidence contains an active
+medication associated with the supplied diabetes evidence, you may
+describe that evidence as corroborating the supplied medical evidence.
+
+However, you must not create new authoritative underwriting findings.
 
 You must not:
+
 - calculate a new risk score
 - change the supplied risk score
 - change the supplied risk tier
-- add or remove risk factors
-- add or remove review flags
-- invent applicant, medical, financial, or external facts
+- add or remove authoritative risk factors
+- add or remove authoritative review flags
+- change whether human review is required
+- invent applicant facts
+- invent medical conditions
+- invent medications
+- invent financial information
+- invent external evidence
 - create new underwriting rules
+- assign additional risk points
+- infer that missing evidence means no risk exists
 - approve or deny insurance coverage
-- make a final underwriting recommendation
-- treat missing or conflicting evidence as favorable evidence
+- make the final underwriting recommendation
+
+Do not double-count related evidence.
+
+For example, if a prescription record corroborates a supplied medical
+condition, describe the relationship as corroborating evidence rather
+than treating the medication as a new independent authoritative risk
+factor unless the deterministic assessment explicitly identifies it as
+one.
 
 Return JSON only using exactly this structure:
 
 {
-  "summary": "brief explanation of the supplied risk assessment",
-  "observations": ["observation 1", "observation 2"]
+  "summary": "brief synthesis of the supplied authoritative assessment",
+  "primary_drivers": [
+    "important supplied risk factor"
+  ],
+  "factor_interactions": [
+    "relationship among supplied risk factors"
+  ],
+  "evidence_context": [
+    "relationship between supplied evidence and supplied risk factors"
+  ],
+  "review_context": [
+    "supplied review flag or evidence limitation requiring attention"
+  ]
 }
 
 Use only facts supplied in the prompt.
@@ -89,8 +150,8 @@ def _build_review_prompt(
     }
 
     return (
-        "Explain the following deterministic synthetic "
-        "risk assessment.\n\n"
+        "Synthesize the following authoritative deterministic "
+        "synthetic risk assessment and its supporting evidence.\n\n"
         + json.dumps(payload, indent=2)
     )
 
@@ -117,15 +178,14 @@ def _parse_risk_scoring_review(
 def risk_scoring_agent(
     application: Application,
     evidence: EnrichmentEvidence,
-    evaluation_date: date,
     llm_client: LLMClient,
+    evaluation_date: date | None = None,
 ) -> RiskScoringResult:
     """
-    Run the standalone Risk Scoring Agent.
+    Execute deterministic risk scoring followed by semantic
+    LLM synthesis.
 
-    The deterministic policy engine calculates the authoritative
-    assessment before the LLM is called. The LLM can explain the
-    assessment but cannot modify it.
+    The deterministic assessment remains authoritative.
     """
 
     assessment = evaluate_policy(
