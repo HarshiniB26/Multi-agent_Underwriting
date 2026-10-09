@@ -1,8 +1,8 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import date
-from time import sleep
-from typing import Any, TypeVar
+from datetime import UTC, date, datetime
+from time import perf_counter, sleep
+from typing import Any, Protocol, TypeVar
 
 from underwriting.agents.enrichment import enrichment_agent
 from underwriting.agents.intake import (
@@ -25,7 +25,17 @@ from underwriting.enrichment.providers import (
     MedicalHistoryProvider,
     PrescriptionProvider,
 )
-from underwriting.llm.client import LLMClient
+from underwriting.llm.client import (
+    LLMClient,
+    LLMResponse,
+)
+from underwriting.observability.models import (
+    TraceRecord,
+    TraceStatus,
+)
+from underwriting.observability.trace_store import (
+    TraceStore,
+)
 from underwriting.repositories.case_repository import (
     CaseRepository,
 )
@@ -33,7 +43,20 @@ from underwriting.workflow.transitions import (
     transition_case,
 )
 
-T = TypeVar("T")
+
+class HasLLMResponse(Protocol):
+    """
+    Structural contract for agent results that may expose
+    LLM invocation metadata.
+    """
+
+    llm_response: LLMResponse | None
+
+
+T = TypeVar(
+    "T",
+    bound=HasLLMResponse,
+)
 
 
 class WorkflowExecutionError(Exception):
@@ -73,6 +96,7 @@ class UnderwritingOrchestrator:
     - route business-review cases
     - retry explicitly retryable technical failures
     - persist terminal technical failures
+    - emit structured per-attempt execution traces
 
     Underwriting policy remains inside the individual deterministic
     policy components, not inside this orchestrator.
@@ -87,6 +111,7 @@ class UnderwritingOrchestrator:
         medical_provider: MedicalHistoryProvider,
         prescription_provider: PrescriptionProvider,
         financial_provider: FinancialProvider,
+        trace_store: TraceStore,
         retry_policy: RetryPolicy | None = None,
     ) -> None:
         self.repository = repository
@@ -95,6 +120,7 @@ class UnderwritingOrchestrator:
         self.medical_provider = medical_provider
         self.prescription_provider = prescription_provider
         self.financial_provider = financial_provider
+        self.trace_store = trace_store
         self.retry_policy = retry_policy or RetryPolicy()
 
     def start_case(
@@ -134,8 +160,9 @@ class UnderwritingOrchestrator:
 
         try:
             intake_result = self._with_retry(
-                "intake",
-                lambda: intake_agent(
+                case=case,
+                stage_name="intake",
+                operation=lambda: intake_agent(
                     raw_application=raw_application,
                     llm_client=self.llm_client,
                 ),
@@ -195,8 +222,9 @@ class UnderwritingOrchestrator:
             case = self.repository.save(case)
 
             enrichment_result = self._with_retry(
-                "enrichment",
-                lambda: enrichment_agent(
+                case=case,
+                stage_name="enrichment",
+                operation=lambda: enrichment_agent(
                     application=case.application,
                     identity_provider=(
                         self.identity_provider
@@ -228,8 +256,9 @@ class UnderwritingOrchestrator:
             case = self.repository.save(case)
 
             risk_result = self._with_retry(
-                "risk_scoring",
-                lambda: risk_scoring_agent(
+                case=case,
+                stage_name="risk_scoring",
+                operation=lambda: risk_scoring_agent(
                     application=case.application,
                     evidence=enrichment_result.evidence,
                     llm_client=self.llm_client,
@@ -251,8 +280,9 @@ class UnderwritingOrchestrator:
             case = self.repository.save(case)
 
             recommendation_result = self._with_retry(
-                "recommendation",
-                lambda: recommendation_agent(
+                case=case,
+                stage_name="recommendation",
+                operation=lambda: recommendation_agent(
                     assessment=risk_result.assessment,
                     llm_client=self.llm_client,
                 ),
@@ -302,11 +332,15 @@ class UnderwritingOrchestrator:
 
     def _with_retry(
         self,
+        *,
+        case: CaseState,
         stage_name: str,
         operation: Callable[[], T],
     ) -> T:
         """
-        Execute a technical operation with bounded retries.
+        Execute one workflow stage with bounded retries and tracing.
+
+        Every attempt produces a TraceRecord.
 
         Only explicitly retryable technical exceptions are retried.
         Unexpected programming errors are not retried.
@@ -318,14 +352,45 @@ class UnderwritingOrchestrator:
             1,
             self.retry_policy.max_attempts + 1,
         ):
+            started_at = datetime.now(UTC)
+            started_counter = perf_counter()
+
             try:
-                return operation()
+                result = operation()
+
+                duration_ms = (
+                    perf_counter() - started_counter
+                ) * 1000
+
+                self._record_success_trace(
+                    case=case,
+                    stage_name=stage_name,
+                    attempt=attempt,
+                    started_at=started_at,
+                    duration_ms=duration_ms,
+                    llm_response=result.llm_response,
+                )
+
+                return result
 
             except (
                 ConnectionError,
                 TimeoutError,
             ) as exc:
+                duration_ms = (
+                    perf_counter() - started_counter
+                ) * 1000
+
                 last_error = exc
+
+                self._record_failure_trace(
+                    case=case,
+                    stage_name=stage_name,
+                    attempt=attempt,
+                    started_at=started_at,
+                    duration_ms=duration_ms,
+                    error=exc,
+                )
 
                 if (
                     attempt
@@ -342,6 +407,80 @@ class UnderwritingOrchestrator:
             f"{self.retry_policy.max_attempts} attempts: "
             f"{last_error}"
         ) from last_error
+
+    def _record_success_trace(
+        self,
+        *,
+        case: CaseState,
+        stage_name: str,
+        attempt: int,
+        started_at: datetime,
+        duration_ms: float,
+        llm_response: LLMResponse | None,
+    ) -> None:
+        """
+        Record successful execution telemetry.
+
+        Applicant/business payloads are intentionally excluded.
+        """
+
+        self.trace_store.record(
+            TraceRecord(
+                case_id=case.metadata.case_id,
+                trace_id=case.metadata.trace_id,
+                stage=stage_name,
+                attempt=attempt,
+                status=TraceStatus.SUCCESS,
+                started_at=started_at,
+                duration_ms=duration_ms,
+                model=(
+                    llm_response.model
+                    if llm_response is not None
+                    else None
+                ),
+                input_tokens=(
+                    llm_response.input_tokens
+                    if llm_response is not None
+                    else 0
+                ),
+                output_tokens=(
+                    llm_response.output_tokens
+                    if llm_response is not None
+                    else 0
+                ),
+            )
+        )
+
+    def _record_failure_trace(
+        self,
+        *,
+        case: CaseState,
+        stage_name: str,
+        attempt: int,
+        started_at: datetime,
+        duration_ms: float,
+        error: Exception,
+    ) -> None:
+        """
+        Record failed technical execution telemetry.
+
+        Only the exception type and message are stored.
+        Applicant/business payloads are not included.
+        """
+
+        self.trace_store.record(
+            TraceRecord(
+                case_id=case.metadata.case_id,
+                trace_id=case.metadata.trace_id,
+                stage=stage_name,
+                attempt=attempt,
+                status=TraceStatus.FAILED,
+                started_at=started_at,
+                duration_ms=duration_ms,
+                error_type=type(error).__name__,
+                error_message=str(error),
+            )
+        )
 
     def _fail_case(
         self,

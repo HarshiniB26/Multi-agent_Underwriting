@@ -20,6 +20,8 @@ from underwriting.enrichment.providers import (
     PrescriptionProvider,
 )
 from underwriting.llm.client import LLMClient, LLMResponse
+from underwriting.observability.models import TraceStatus
+from underwriting.observability.trace_store import InMemoryTraceStore
 from underwriting.repositories.sqlite_case_repository import (
     SQLiteCaseRepository,
 )
@@ -296,6 +298,7 @@ def build_orchestrator(
     tmp_path: Path,
     llm_client: LLMClient,
     retry_policy: RetryPolicy | None = None,
+    trace_store: InMemoryTraceStore | None = None,
 ) -> UnderwritingOrchestrator:
     repository = SQLiteCaseRepository(
         tmp_path / "underwriting.db"
@@ -306,10 +309,9 @@ def build_orchestrator(
         llm_client=llm_client,
         identity_provider=FakeIdentityProvider(),
         medical_provider=FakeMedicalProvider(),
-        prescription_provider=(
-            FakePrescriptionProvider()
-        ),
+        prescription_provider=FakePrescriptionProvider(),
         financial_provider=FakeFinancialProvider(),
+        trace_store=trace_store or InMemoryTraceStore(),
         retry_policy=retry_policy,
     )
 
@@ -591,6 +593,261 @@ def test_programming_error_is_not_retried(
         )
 
     assert llm.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Observability
+# ---------------------------------------------------------------------------
+
+
+def test_successful_workflow_records_all_stage_traces(
+    tmp_path,
+):
+    llm = SequentialFakeLLMClient(
+        happy_path_responses()
+    )
+    trace_store = InMemoryTraceStore()
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+        trace_store=trace_store,
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    traces = trace_store.get_by_trace_id(
+        result.metadata.trace_id
+    )
+
+    assert len(traces) == 4
+
+    assert [
+        trace.stage
+        for trace in traces
+    ] == [
+        "intake",
+        "enrichment",
+        "risk_scoring",
+        "recommendation",
+    ]
+
+    assert all(
+        trace.status == TraceStatus.SUCCESS
+        for trace in traces
+    )
+
+    assert all(
+        trace.attempt == 1
+        for trace in traces
+    )
+
+
+def test_successful_traces_capture_llm_metrics(
+    tmp_path,
+):
+    llm = SequentialFakeLLMClient(
+        happy_path_responses()
+    )
+    trace_store = InMemoryTraceStore()
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+        trace_store=trace_store,
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    traces = trace_store.get_by_trace_id(
+        result.metadata.trace_id
+    )
+
+    for trace in traces:
+        assert trace.model == "fake-model"
+        assert trace.input_tokens == 100
+        assert trace.output_tokens == 25
+        assert trace.duration_ms >= 0
+        assert trace.error_type is None
+        assert trace.error_message is None
+
+
+def test_workflow_traces_share_case_and_trace_ids(
+    tmp_path,
+):
+    llm = SequentialFakeLLMClient(
+        happy_path_responses()
+    )
+    trace_store = InMemoryTraceStore()
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+        trace_store=trace_store,
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    traces = trace_store.get_by_trace_id(
+        result.metadata.trace_id
+    )
+
+    assert all(
+        trace.case_id == result.metadata.case_id
+        for trace in traces
+    )
+
+    assert all(
+        trace.trace_id == result.metadata.trace_id
+        for trace in traces
+    )
+
+
+def test_retry_records_failed_then_successful_attempt(
+    tmp_path,
+):
+    llm = RecoveringLLMClient(
+        happy_path_responses()
+    )
+    trace_store = InMemoryTraceStore()
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+        trace_store=trace_store,
+        retry_policy=RetryPolicy(
+            max_attempts=3,
+            backoff_seconds=0,
+        ),
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    traces = trace_store.get_by_trace_id(
+        result.metadata.trace_id
+    )
+
+    intake_traces = [
+        trace
+        for trace in traces
+        if trace.stage == "intake"
+    ]
+
+    assert len(intake_traces) == 2
+
+    assert intake_traces[0].attempt == 1
+    assert (
+        intake_traces[0].status
+        == TraceStatus.FAILED
+    )
+    assert (
+        intake_traces[0].error_type
+        == "ConnectionError"
+    )
+
+    assert intake_traces[1].attempt == 2
+    assert (
+        intake_traces[1].status
+        == TraceStatus.SUCCESS
+    )
+
+
+def test_retry_exhaustion_records_every_attempt(
+    tmp_path,
+):
+    llm = FailingLLMClient()
+    trace_store = InMemoryTraceStore()
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+        trace_store=trace_store,
+        retry_policy=RetryPolicy(
+            max_attempts=3,
+            backoff_seconds=0,
+        ),
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    traces = trace_store.get_by_trace_id(
+        result.metadata.trace_id
+    )
+
+    assert len(traces) == 3
+
+    assert [
+        trace.attempt
+        for trace in traces
+    ] == [1, 2, 3]
+
+    assert all(
+        trace.stage == "intake"
+        for trace in traces
+    )
+
+    assert all(
+        trace.status == TraceStatus.FAILED
+        for trace in traces
+    )
+
+    assert all(
+        trace.error_type == "ConnectionError"
+        for trace in traces
+    )
+
+
+def test_trace_records_do_not_contain_application_payload(
+    tmp_path,
+):
+    llm = SequentialFakeLLMClient(
+        happy_path_responses()
+    )
+    trace_store = InMemoryTraceStore()
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+        trace_store=trace_store,
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    traces = trace_store.get_by_trace_id(
+        result.metadata.trace_id
+    )
+
+    serialized_traces = json.dumps(
+        [
+            trace.model_dump(
+                mode="json"
+            )
+            for trace in traces
+        ]
+    )
+
+    assert "Aarav" not in serialized_traces
+    assert "Sharma" not in serialized_traces
+    assert APPLICATION_ID not in serialized_traces
+    assert "90000" not in serialized_traces
 
 
 # ---------------------------------------------------------------------------
