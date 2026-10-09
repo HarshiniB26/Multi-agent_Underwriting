@@ -1,7 +1,7 @@
 import json
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from underwriting.domain.application import Application
 from underwriting.enrichment.models import (
@@ -18,73 +18,124 @@ from underwriting.llm.client import LLMClient, LLMResponse
 
 
 class EnrichmentStatus(StrEnum):
-    """Outcome of the enrichment processing stage."""
-
     COMPLETED = "completed"
     NEEDS_REVIEW = "needs_review"
 
 
+class EvidenceConsistency(StrEnum):
+    CONSISTENT = "consistent"
+    INCONSISTENT = "inconsistent"
+    INCOMPLETE = "incomplete"
+
+
 class EnrichmentReview(BaseModel):
     """
-    Structured LLM interpretation of already collected enrichment evidence.
+    Structured cross-source synthesis produced by the LLM.
 
-    This review is explanatory only. It cannot create, remove, or modify
-    external evidence or make an underwriting recommendation.
+    The LLM interprets relationships between validated evidence.
+    It does not create or remove authoritative discrepancies.
     """
 
+    evidence_consistency: EvidenceConsistency
     summary: str = Field(min_length=1)
-    observations: list[str] = Field(default_factory=list)
+    material_concerns: list[str] = Field(default_factory=list)
+    corroborating_evidence: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_review_consistency(self):
+        if (
+            self.evidence_consistency
+            == EvidenceConsistency.CONSISTENT
+            and self.material_concerns
+        ):
+            raise ValueError(
+                "Consistent evidence must not contain material concerns."
+            )
+
+        return self
 
 
 class EnrichmentResult(BaseModel):
-    """Result returned by the standalone enrichment agent."""
-
     status: EnrichmentStatus
     evidence: EnrichmentEvidence
-
     discrepancies: list[str] = Field(default_factory=list)
     missing_evidence: list[str] = Field(default_factory=list)
-
     review: EnrichmentReview
     llm_response: LLMResponse
 
 
 ENRICHMENT_SYSTEM_PROMPT = """
-You are the enrichment review component of a synthetic educational
-life-insurance underwriting system.
+You are the cross-source evidence synthesis component of a synthetic
+educational life-insurance underwriting system.
 
-You will receive:
-1. applicant-provided information,
-2. validated synthetic external evidence,
-3. deterministic discrepancies identified by application code, and
-4. external evidence sources that were not found.
+You receive:
 
-Your responsibility is limited to explaining the supplied information
-clearly and concisely.
+1. validated applicant-provided information
+2. validated identity evidence
+3. validated medical evidence
+4. validated prescription evidence
+5. validated financial evidence
+6. deterministic discrepancies detected by application code
+7. deterministic missing-evidence findings detected by application code
+
+Your responsibility is to reason about relationships among those supplied
+facts.
+
+You should identify useful cross-source relationships such as:
+
+- external medical and prescription evidence that corroborate one another
+- external evidence that conflicts with applicant declarations
+- multiple evidence sources that support the same concern
+- incomplete evidence that limits interpretation
+- evidence that is mutually consistent
+
+The deterministic discrepancies and missing-evidence findings supplied
+to you are authoritative.
 
 You must not:
-- invent applicant or external facts
-- modify external evidence
-- decide whether a discrepancy exists
-- calculate an underwriting risk score
-- approve or deny insurance coverage
-- make a final underwriting recommendation
-- treat missing evidence as favorable evidence
 
-Return JSON only using exactly this structure:
+- remove or contradict an authoritative discrepancy
+- remove or contradict a missing-evidence finding
+- invent medical conditions
+- invent medications
+- invent identity information
+- invent financial information
+- infer that missing evidence means no risk exists
+- calculate a risk score
+- assign a risk tier
+- approve or deny the applicant
+- make the final underwriting recommendation
+- invent underwriting policy
+
+Use evidence_consistency="consistent" when:
+- no deterministic discrepancies exist
+- no evidence sources are missing
+
+Use evidence_consistency="inconsistent" when:
+- one or more deterministic discrepancies exist
+- no evidence sources are missing
+
+Use evidence_consistency="incomplete" when:
+- one or more evidence sources are missing
+
+If both discrepancies and missing evidence exist, use "incomplete"
+because the complete evidence picture is unavailable.
+
+Every material concern and corroborating relationship must be grounded
+in the supplied application, evidence, or deterministic findings.
+
+Return JSON only using this structure:
 
 {
-  "summary": "brief evidence summary",
-  "observations": ["observation 1", "observation 2"]
+  "evidence_consistency": "consistent",
+  "summary": "brief cross-source evidence synthesis",
+  "material_concerns": [],
+  "corroborating_evidence": []
 }
-
-Use only facts supplied in the prompt.
 """.strip()
 
 
-def _normalize_text(value: str) -> str:
-    """Normalize text for deterministic comparisons."""
-
+def _normalize(value: str) -> str:
     return value.strip().casefold()
 
 
@@ -93,9 +144,9 @@ def _find_discrepancies(
     evidence: EnrichmentEvidence,
 ) -> list[str]:
     """
-    Compare applicant declarations with available external evidence.
+    Detect factual discrepancies deterministically.
 
-    These comparisons are deterministic and do not rely on the LLM.
+    These findings are authoritative.
     """
 
     discrepancies: list[str] = []
@@ -104,13 +155,13 @@ def _find_discrepancies(
 
     if identity.status == EvidenceStatus.CONFLICT:
         discrepancies.append(
-            "External identity evidence has a conflict."
+            "Identity evidence conflicts with the application."
         )
 
     elif identity.status == EvidenceStatus.AVAILABLE:
         if identity.identity_verified is False:
             discrepancies.append(
-                "External identity evidence did not verify the applicant."
+                "External identity evidence could not verify the applicant."
             )
 
         if identity.name_match is False:
@@ -120,7 +171,8 @@ def _find_discrepancies(
 
         if identity.date_of_birth_match is False:
             discrepancies.append(
-                "Applicant date of birth does not match external identity evidence."
+                "Applicant date of birth does not match "
+                "external identity evidence."
             )
 
         if identity.state_match is False:
@@ -128,58 +180,51 @@ def _find_discrepancies(
                 "Applicant state does not match external identity evidence."
             )
 
-    medical = evidence.medical
+    declared_conditions = {
+        _normalize(condition)
+        for condition in application.medical_conditions_declared
+    }
 
-    if medical.status == EvidenceStatus.CONFLICT:
+    if evidence.medical.status == EvidenceStatus.CONFLICT:
         discrepancies.append(
-            "External medical evidence has a conflict."
+            "Medical evidence contains a provider-level conflict."
         )
 
-    if medical.status == EvidenceStatus.AVAILABLE:
-        declared_conditions = {
-            _normalize_text(condition)
-            for condition in application.medical_conditions_declared
-        }
-
-        for condition in medical.conditions:
-            if (
-                _normalize_text(condition.condition)
-                not in declared_conditions
-            ):
+    elif evidence.medical.status == EvidenceStatus.AVAILABLE:
+        for condition in evidence.medical.conditions:
+            if _normalize(condition.condition) not in declared_conditions:
                 discrepancies.append(
                     "External medical evidence contains an undeclared "
                     f"condition: {condition.condition}."
                 )
 
-    prescription = evidence.prescription
+    declared_medications = {
+        _normalize(medication)
+        for medication in application.medications_declared
+    }
 
-    if prescription.status == EvidenceStatus.CONFLICT:
+    if evidence.prescription.status == EvidenceStatus.CONFLICT:
         discrepancies.append(
-            "External prescription evidence has a conflict."
+            "Prescription evidence contains a provider-level conflict."
         )
 
-    if prescription.status == EvidenceStatus.AVAILABLE:
-        declared_medications = {
-            _normalize_text(medication)
-            for medication in application.medications_declared
-        }
-
-        for record in prescription.prescriptions:
+    elif evidence.prescription.status == EvidenceStatus.AVAILABLE:
+        for prescription in evidence.prescription.prescriptions:
             if (
-                record.active
-                and _normalize_text(record.medication)
+                prescription.active
+                and _normalize(prescription.medication)
                 not in declared_medications
             ):
                 discrepancies.append(
                     "External prescription evidence contains an undeclared "
-                    f"active medication: {record.medication}."
+                    f"active medication: {prescription.medication}."
                 )
 
     financial = evidence.financial
 
     if financial.status == EvidenceStatus.CONFLICT:
         discrepancies.append(
-            "External financial evidence has a conflict."
+            "Financial evidence conflicts with the application."
         )
 
     elif financial.status == EvidenceStatus.AVAILABLE:
@@ -194,8 +239,8 @@ def _find_discrepancies(
             != application.annual_income
         ):
             discrepancies.append(
-                "Applicant annual income differs from verified "
-                "external annual income."
+                "Verified annual income does not match "
+                "applicant-declared annual income."
             )
 
     return discrepancies
@@ -204,7 +249,9 @@ def _find_discrepancies(
 def _find_missing_evidence(
     evidence: EnrichmentEvidence,
 ) -> list[str]:
-    """Identify external sources for which no record was available."""
+    """
+    Detect unavailable external evidence sources deterministically.
+    """
 
     missing: list[str] = []
 
@@ -229,39 +276,26 @@ def _build_review_prompt(
     discrepancies: list[str],
     missing_evidence: list[str],
 ) -> str:
-    """Construct explicit case context for the enrichment LLM invocation."""
-
     payload = {
-        "application": application.model_dump(
-            mode="json"
-        ),
-        "external_evidence": evidence.model_dump(
-            mode="json"
-        ),
-        "deterministic_discrepancies": discrepancies,
-        "missing_evidence": missing_evidence,
+        "application": application.model_dump(mode="json"),
+        "external_evidence": evidence.model_dump(mode="json"),
+        "authoritative_discrepancies": discrepancies,
+        "authoritative_missing_evidence": missing_evidence,
     }
 
     return (
-        "Explain the following validated synthetic enrichment result.\n\n"
-        + json.dumps(
-            payload,
-            indent=2,
-        )
+        "Perform a cross-source synthesis of the following validated "
+        "application and enrichment evidence.\n\n"
+        + json.dumps(payload, indent=2)
     )
 
 
 def _parse_enrichment_review(
     content: str,
 ) -> EnrichmentReview:
-    """Validate untrusted LLM output."""
-
     try:
         parsed = json.loads(content)
-
-        return EnrichmentReview.model_validate(
-            parsed
-        )
+        return EnrichmentReview.model_validate(parsed)
 
     except (
         json.JSONDecodeError,
@@ -281,36 +315,36 @@ def enrichment_agent(
     llm_client: LLMClient,
 ) -> EnrichmentResult:
     """
-    Retrieve external evidence and perform bounded LLM interpretation.
+    Retrieve external evidence and perform cross-source synthesis.
 
-    External providers are authoritative for retrieved evidence.
-    Deterministic code identifies discrepancies and missing evidence.
-    The LLM is used only to explain the resulting evidence.
+    Deterministic code:
+    - retrieves provider evidence
+    - detects factual discrepancies
+    - detects missing evidence
+    - controls authoritative enrichment status
+
+    LLM:
+    - synthesizes relationships among validated evidence
+    - identifies corroborating evidence
+    - explains material concerns
+
+    Provider failures intentionally propagate. Retry, backoff, and
+    escalation belong to the orchestration/resilience layer.
     """
 
-    identity = identity_provider.get_identity_evidence(
-        application
-    )
-
-    medical = medical_provider.get_medical_evidence(
-        application
-    )
-
-    prescription = (
-        prescription_provider.get_prescription_evidence(
-            application
-        )
-    )
-
-    financial = financial_provider.get_financial_evidence(
-        application
-    )
-
     evidence = EnrichmentEvidence(
-        identity=identity,
-        medical=medical,
-        prescription=prescription,
-        financial=financial,
+        identity=identity_provider.get_identity_evidence(
+            application
+        ),
+        medical=medical_provider.get_medical_evidence(
+            application
+        ),
+        prescription=prescription_provider.get_prescription_evidence(
+            application
+        ),
+        financial=financial_provider.get_financial_evidence(
+            application
+        ),
     )
 
     discrepancies = _find_discrepancies(
@@ -322,24 +356,24 @@ def enrichment_agent(
         evidence
     )
 
+    status = (
+        EnrichmentStatus.NEEDS_REVIEW
+        if discrepancies or missing_evidence
+        else EnrichmentStatus.COMPLETED
+    )
+
     llm_response = llm_client.generate(
         system_prompt=ENRICHMENT_SYSTEM_PROMPT,
         user_prompt=_build_review_prompt(
-            application,
-            evidence,
-            discrepancies,
-            missing_evidence,
+            application=application,
+            evidence=evidence,
+            discrepancies=discrepancies,
+            missing_evidence=missing_evidence,
         ),
     )
 
     review = _parse_enrichment_review(
         llm_response.content
-    )
-
-    status = (
-        EnrichmentStatus.NEEDS_REVIEW
-        if discrepancies or missing_evidence
-        else EnrichmentStatus.COMPLETED
     )
 
     return EnrichmentResult(
