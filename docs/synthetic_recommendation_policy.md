@@ -25,7 +25,7 @@ APPROVE, DENY, or REFER.
 ## Inputs
 
 The recommendation policy consumes the authoritative RiskAssessment
-produced by synthetic-life-v1.
+produced by synthetic-life-v2.
 
 The RiskAssessment contains:
 
@@ -75,7 +75,7 @@ A case receives DENY when:
 - requires_review = false
 - risk tier = VERY_HIGH
 
-For synthetic-life-v1, VERY_HIGH corresponds to a deterministic risk
+For synthetic-life-v2, VERY_HIGH corresponds to a deterministic risk
 score of 50 or greater.
 
 A case requiring review is never automatically denied solely because of

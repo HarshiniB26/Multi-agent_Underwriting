@@ -14,7 +14,8 @@ class EnrichmentProviderError(Exception):
 
 
 class EnrichmentProviderTimeoutError(
-    EnrichmentProviderError
+    EnrichmentProviderError,
+    TimeoutError,
 ):
     """Raised when an enrichment provider times out."""
 

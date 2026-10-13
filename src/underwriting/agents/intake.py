@@ -9,7 +9,10 @@ from pydantic import (
     model_validator,
 )
 
-from underwriting.domain.application import Application
+from underwriting.domain.application import (
+    LLM_EXCLUDED_FIELDS,
+    Application,
+)
 from underwriting.llm.client import LLMClient, LLMResponse
 
 
@@ -169,7 +172,10 @@ def _build_review_prompt(
         "Review the following validated applicant-provided information "
         "for semantic clarity and clarification needs only.\n\n"
         + json.dumps(
-            application.model_dump(mode="json"),
+            application.model_dump(
+                mode="json",
+                exclude=LLM_EXCLUDED_FIELDS,
+            ),
             indent=2,
         )
     )
@@ -241,6 +247,20 @@ def intake_agent(
     - identifies clarification needs
     - cannot score risk or make underwriting decisions
     """
+
+    if (
+        isinstance(raw_application, dict)
+        and "application_id" in raw_application
+    ):
+        return IntakeResult(
+            status=IntakeStatus.INVALID,
+            validation_errors=[
+                (
+                    "application_id: is assigned by the server "
+                    "and must not be supplied"
+                )
+            ],
+        )
 
     try:
         application = Application.model_validate(

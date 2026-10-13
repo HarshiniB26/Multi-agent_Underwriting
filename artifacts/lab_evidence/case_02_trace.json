@@ -1,0 +1,428 @@
+{
+  "case_id": "1398e61d-315a-4032-993a-e5a4d81a9e91",
+  "trace_id": "a0a3fbfa-f197-44fb-89b3-ec65365ed717",
+  "status": "recommendation_completed",
+  "errors": [],
+  "recommendation": {
+    "recommendation": {
+      "recommendation_policy_version": "synthetic-recommendation-v1",
+      "risk_policy_version": "synthetic-life-v2",
+      "decision": "approve",
+      "reason_code": "automated_approval",
+      "risk_score": 20,
+      "risk_tier": "moderate",
+      "requires_review": false
+    },
+    "review": {
+      "summary": "Authoritative recommendation follows the risk assessment.",
+      "decision_basis": [
+        "tier",
+        "score"
+      ],
+      "precedence_explanation": null,
+      "human_review_focus": []
+    },
+    "llm_response": {
+      "content": "{\"summary\": \"Authoritative recommendation follows the risk assessment.\", \"decision_basis\": [\"tier\", \"score\"], \"precedence_explanation\": null, \"human_review_focus\": []}",
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "latency_ms": 18.0
+    }
+  },
+  "risk_assessment": {
+    "policy_version": "synthetic-life-v2",
+    "evaluation_date": "2026-10-08",
+    "age": 44,
+    "bmi": 26.45,
+    "coverage_to_income_ratio": 6.25,
+    "score": 20,
+    "tier": "moderate",
+    "risk_factors": [
+      {
+        "code": "AGE_40_49",
+        "description": "Applicant age is between 40 and 49.",
+        "points": 5
+      },
+      {
+        "code": "COVERAGE_RATIO_5_TO_8",
+        "description": "Coverage-to-income ratio is greater than 5 and no greater than 8.",
+        "points": 5
+      },
+      {
+        "code": "MEDICAL_HYPERTENSION",
+        "description": "External medical evidence contains Hypertension.",
+        "points": 10
+      }
+    ],
+    "review_flags": [],
+    "requires_review": false
+  },
+  "totals": {
+    "duration_ms": 1.0709170019254088,
+    "input_tokens": 1680,
+    "output_tokens": 360,
+    "estimated_cost_usd": 0.000468
+  },
+  "traces": [
+    {
+      "stage": "intake",
+      "component": "intake_agent",
+      "attempt": 1,
+      "status": "success",
+      "started_at": "2026-10-13T06:41:37.679854+00:00",
+      "finished_at": "2026-10-13T06:41:37.679908+00:00",
+      "duration_ms": 0.05166700066183694,
+      "llm_latency_ms": 18.0,
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "estimated_cost_usd": 0.000117,
+      "input_sources": {
+        "raw_application": "user_input"
+      },
+      "tools_used": [],
+      "received": {
+        "raw_application": {
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1982-XX-XX",
+          "state": "NJ",
+          "annual_income": 120000,
+          "coverage_amount": 750000,
+          "occupation": "Project Manager",
+          "tobacco_use": "never",
+          "height_cm": 165,
+          "weight_kg": 72,
+          "medical_conditions_declared": [
+            "Hypertension"
+          ],
+          "medications_declared": [
+            "Lisinopril"
+          ]
+        }
+      },
+      "produced": {
+        "status": "accepted",
+        "application": {
+          "application_id": "c5b0036c-d81d-4277-ab8f-5de428520183",
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1982-XX-XX",
+          "state": "NJ",
+          "annual_income": 120000,
+          "coverage_amount": 750000,
+          "occupation": "Project Manager",
+          "tobacco_use": "never",
+          "height_cm": 165,
+          "weight_kg": 72.0,
+          "medical_conditions_declared": [
+            "Hypertension"
+          ],
+          "medications_declared": [
+            "Lisinopril"
+          ]
+        },
+        "review": {
+          "needs_review": false,
+          "summary": "Applicant-provided information is clear.",
+          "concerns": []
+        },
+        "validation_errors": []
+      },
+      "state_writes": [
+        "application"
+      ],
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "stage": "enrichment",
+      "component": "enrichment_agent",
+      "attempt": 1,
+      "status": "success",
+      "started_at": "2026-10-13T06:41:37.682920+00:00",
+      "finished_at": "2026-10-13T06:41:37.683815+00:00",
+      "duration_ms": 0.893459000508301,
+      "llm_latency_ms": 18.0,
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "estimated_cost_usd": 0.000117,
+      "input_sources": {
+        "application": "intake_agent"
+      },
+      "tools_used": [
+        "SyntheticIdentityProvider",
+        "SyntheticMedicalHistoryProvider",
+        "SyntheticPrescriptionProvider",
+        "SyntheticFinancialProvider"
+      ],
+      "received": {
+        "application": {
+          "application_id": "c5b0036c-d81d-4277-ab8f-5de428520183",
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1982-XX-XX",
+          "state": "NJ",
+          "annual_income": 120000,
+          "coverage_amount": 750000,
+          "occupation": "Project Manager",
+          "tobacco_use": "never",
+          "height_cm": 165,
+          "weight_kg": 72.0,
+          "medical_conditions_declared": [
+            "Hypertension"
+          ],
+          "medications_declared": [
+            "Lisinopril"
+          ]
+        }
+      },
+      "produced": {
+        "status": "completed",
+        "evidence": {
+          "identity": {
+            "status": "available",
+            "identity_verified": true,
+            "name_match": true,
+            "date_of_birth_match": true,
+            "state_match": true
+          },
+          "medical": {
+            "status": "available",
+            "conditions": [
+              {
+                "condition": "Hypertension",
+                "status": "managed"
+              }
+            ]
+          },
+          "prescription": {
+            "status": "available",
+            "prescriptions": [
+              {
+                "medication": "Lisinopril",
+                "active": true
+              }
+            ]
+          },
+          "financial": {
+            "status": "available",
+            "income_verified": true,
+            "verified_annual_income": 120000
+          }
+        },
+        "discrepancies": [],
+        "missing_evidence": [],
+        "review": {
+          "evidence_consistency": "consistent",
+          "summary": "External evidence is consistent with the application.",
+          "material_concerns": [],
+          "corroborating_evidence": [
+            "Identity and financial records match."
+          ]
+        }
+      },
+      "state_writes": [
+        "enrichment"
+      ],
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "stage": "risk_scoring",
+      "component": "risk_scoring_agent",
+      "attempt": 1,
+      "status": "success",
+      "started_at": "2026-10-13T06:41:37.686578+00:00",
+      "finished_at": "2026-10-13T06:41:37.686660+00:00",
+      "duration_ms": 0.08020799941732548,
+      "llm_latency_ms": 18.0,
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "estimated_cost_usd": 0.000117,
+      "input_sources": {
+        "application": "intake_agent",
+        "evidence": "enrichment_agent"
+      },
+      "tools_used": [],
+      "received": {
+        "application": {
+          "application_id": "c5b0036c-d81d-4277-ab8f-5de428520183",
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1982-XX-XX",
+          "state": "NJ",
+          "annual_income": 120000,
+          "coverage_amount": 750000,
+          "occupation": "Project Manager",
+          "tobacco_use": "never",
+          "height_cm": 165,
+          "weight_kg": 72.0,
+          "medical_conditions_declared": [
+            "Hypertension"
+          ],
+          "medications_declared": [
+            "Lisinopril"
+          ]
+        },
+        "evidence": {
+          "identity": {
+            "status": "available",
+            "identity_verified": true,
+            "name_match": true,
+            "date_of_birth_match": true,
+            "state_match": true
+          },
+          "medical": {
+            "status": "available",
+            "conditions": [
+              {
+                "condition": "Hypertension",
+                "status": "managed"
+              }
+            ]
+          },
+          "prescription": {
+            "status": "available",
+            "prescriptions": [
+              {
+                "medication": "Lisinopril",
+                "active": true
+              }
+            ]
+          },
+          "financial": {
+            "status": "available",
+            "income_verified": true,
+            "verified_annual_income": 120000
+          }
+        }
+      },
+      "produced": {
+        "assessment": {
+          "policy_version": "synthetic-life-v2",
+          "evaluation_date": "2026-10-08",
+          "age": 44,
+          "bmi": 26.45,
+          "coverage_to_income_ratio": 6.25,
+          "score": 20,
+          "tier": "moderate",
+          "risk_factors": [
+            {
+              "code": "AGE_40_49",
+              "description": "Applicant age is between 40 and 49.",
+              "points": 5
+            },
+            {
+              "code": "COVERAGE_RATIO_5_TO_8",
+              "description": "Coverage-to-income ratio is greater than 5 and no greater than 8.",
+              "points": 5
+            },
+            {
+              "code": "MEDICAL_HYPERTENSION",
+              "description": "External medical evidence contains Hypertension.",
+              "points": 10
+            }
+          ],
+          "review_flags": [],
+          "requires_review": false
+        },
+        "review": {
+          "summary": "Deterministic risk assessment synthesized.",
+          "primary_drivers": [
+            "age",
+            "coverage"
+          ],
+          "factor_interactions": [],
+          "evidence_context": [],
+          "review_context": []
+        }
+      },
+      "state_writes": [
+        "risk_assessment"
+      ],
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "stage": "recommendation",
+      "component": "recommendation_agent",
+      "attempt": 1,
+      "status": "success",
+      "started_at": "2026-10-13T06:41:37.689495+00:00",
+      "finished_at": "2026-10-13T06:41:37.689543+00:00",
+      "duration_ms": 0.04558300133794546,
+      "llm_latency_ms": 18.0,
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "estimated_cost_usd": 0.000117,
+      "input_sources": {
+        "assessment": "risk_scoring_agent"
+      },
+      "tools_used": [],
+      "received": {
+        "assessment": {
+          "policy_version": "synthetic-life-v2",
+          "evaluation_date": "2026-10-08",
+          "age": 44,
+          "bmi": 26.45,
+          "coverage_to_income_ratio": 6.25,
+          "score": 20,
+          "tier": "moderate",
+          "risk_factors": [
+            {
+              "code": "AGE_40_49",
+              "description": "Applicant age is between 40 and 49.",
+              "points": 5
+            },
+            {
+              "code": "COVERAGE_RATIO_5_TO_8",
+              "description": "Coverage-to-income ratio is greater than 5 and no greater than 8.",
+              "points": 5
+            },
+            {
+              "code": "MEDICAL_HYPERTENSION",
+              "description": "External medical evidence contains Hypertension.",
+              "points": 10
+            }
+          ],
+          "review_flags": [],
+          "requires_review": false
+        }
+      },
+      "produced": {
+        "recommendation": {
+          "recommendation_policy_version": "synthetic-recommendation-v1",
+          "risk_policy_version": "synthetic-life-v2",
+          "decision": "approve",
+          "reason_code": "automated_approval",
+          "risk_score": 20,
+          "risk_tier": "moderate",
+          "requires_review": false
+        },
+        "review": {
+          "summary": "Authoritative recommendation follows the risk assessment.",
+          "decision_basis": [
+            "tier",
+            "score"
+          ],
+          "precedence_explanation": null,
+          "human_review_focus": []
+        }
+      },
+      "state_writes": [
+        "recommendation"
+      ],
+      "error_type": null,
+      "error_message": null
+    }
+  ]
+}

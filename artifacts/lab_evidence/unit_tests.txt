@@ -1,0 +1,49 @@
+ssssssss................................................................ [ 21%]
+........................................................................ [ 43%]
+........................................................................ [ 64%]
+........................................................................ [ 86%]
+..............................................                           [100%]
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.15-final-0 _______________
+
+Name                                                      Stmts   Miss  Cover   Missing
+---------------------------------------------------------------------------------------
+src/underwriting/__init__.py                                  0      0   100%
+src/underwriting/agents/__init__.py                           0      0   100%
+src/underwriting/agents/enrichment.py                        92      0   100%
+src/underwriting/agents/intake.py                            56      0   100%
+src/underwriting/agents/recommendation.py                    30      0   100%
+src/underwriting/agents/risk_scoring.py                      33      0   100%
+src/underwriting/domain/__init__.py                           0      0   100%
+src/underwriting/domain/application.py                       66      0   100%
+src/underwriting/domain/case.py                              33      0   100%
+src/underwriting/enrichment/__init__.py                       0      0   100%
+src/underwriting/enrichment/matching.py                      18      0   100%
+src/underwriting/enrichment/models.py                        33      0   100%
+src/underwriting/enrichment/providers.py                     18      0   100%
+src/underwriting/enrichment/synthetic_providers.py           60      0   100%
+src/underwriting/enrichment/synthetic_store.py               24      0   100%
+src/underwriting/llm/__init__.py                              0      0   100%
+src/underwriting/llm/client.py                               11      0   100%
+src/underwriting/llm/ollama_client.py                        34      0   100%
+src/underwriting/observability/__init__.py                    0      0   100%
+src/underwriting/observability/cost.py                        8      0   100%
+src/underwriting/observability/models.py                     30      0   100%
+src/underwriting/observability/payloads.py                   50      0   100%
+src/underwriting/observability/sqlite_trace_store.py         44      0   100%
+src/underwriting/observability/trace_store.py                15      0   100%
+src/underwriting/recommendation/models.py                    19      0   100%
+src/underwriting/recommendation/policy.py                    13      0   100%
+src/underwriting/repositories/__init__.py                     0      0   100%
+src/underwriting/repositories/case_repository.py             17      0   100%
+src/underwriting/repositories/sqlite_case_repository.py      71      0   100%
+src/underwriting/risk/__init__.py                             0      0   100%
+src/underwriting/risk/models.py                              38      0   100%
+src/underwriting/risk/policy.py                             140      0   100%
+src/underwriting/workflow/__init__.py                         0      0   100%
+src/underwriting/workflow/orchestrator.py                   156      0   100%
+src/underwriting/workflow/transitions.py                     11      0   100%
+---------------------------------------------------------------------------------------
+TOTAL                                                      1120      0   100%
+Required test coverage of 100.0% reached. Total coverage: 100.00%
+326 passed, 8 skipped in 0.97s

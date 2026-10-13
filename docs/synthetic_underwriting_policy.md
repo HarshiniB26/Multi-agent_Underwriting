@@ -115,6 +115,11 @@ evidence.
 Conditions not defined by this synthetic policy do not receive an
 invented score. They instead generate a policy-review flag.
 
+Condition names are matched case-insensitively, and common synonyms are
+mapped to the policy name before matching (for example, "High Blood
+Pressure" is treated as Hypertension and "Hyperlipidemia" as High
+Cholesterol).
+
 ## Prescription Evidence
 
 Prescription evidence is used primarily to corroborate medical evidence.
@@ -146,6 +151,12 @@ The following situations generate a mandatory review flag:
 
 - identity evidence conflict
 - financial evidence conflict
+- medical evidence conflict
+- prescription evidence conflict
+- available identity evidence that fails verification or does not match
+  the applicant's name, date of birth, or state
+- available financial evidence that cannot verify income, or a verified
+  income more than 5% away from the declared income
 - missing identity evidence
 - missing medical evidence
 - missing prescription evidence

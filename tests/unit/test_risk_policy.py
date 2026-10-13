@@ -31,6 +31,7 @@ def build_application(
     **overrides,
 ) -> Application:
     data = {
+        "ssn": "901-00-0001",
         "first_name": "Synthetic",
         "last_name": "Applicant",
         "date_of_birth": date(1990, 5, 15),
@@ -393,6 +394,306 @@ def test_unknown_medical_condition_requires_review():
         in assessment.review_flags
     )
     assert assessment.requires_review is True
+
+
+@pytest.mark.parametrize(
+    ("date_of_birth", "code", "points"),
+    [
+        (date(1956, 10, 8), "AGE_70_PLUS", 30),
+        (date(1966, 10, 8), "AGE_60_69", 20),
+        (date(1976, 10, 8), "AGE_50_59", 10),
+    ],
+)
+def test_older_age_bands_add_points(
+    date_of_birth,
+    code,
+    points,
+):
+    assessment = evaluate_policy(
+        build_application(date_of_birth=date_of_birth),
+        clean_evidence(),
+        EVALUATION_DATE,
+    )
+
+    assert [
+        factor.code for factor in assessment.risk_factors
+    ] == [code]
+    assert assessment.score == points
+
+
+@pytest.mark.parametrize(
+    ("weight_kg", "code", "points"),
+    [
+        (50, "BMI_UNDER_18_5", 10),
+        (125, "BMI_40_PLUS", 20),
+        (110, "BMI_35_39_9", 10),
+    ],
+)
+def test_bmi_bands_add_points(
+    weight_kg,
+    code,
+    points,
+):
+    assessment = evaluate_policy(
+        build_application(weight_kg=weight_kg),
+        clean_evidence(),
+        EVALUATION_DATE,
+    )
+
+    assert [
+        factor.code for factor in assessment.risk_factors
+    ] == [code]
+    assert assessment.score == points
+
+
+def test_coverage_ratio_between_eight_and_ten_adds_ten_points():
+    assessment = evaluate_policy(
+        build_application(coverage_amount=900000),
+        clean_evidence(),
+        EVALUATION_DATE,
+    )
+
+    assert assessment.coverage_to_income_ratio == 9
+    assert [
+        factor.code for factor in assessment.risk_factors
+    ] == ["COVERAGE_RATIO_8_TO_10"]
+    assert assessment.score == 10
+
+
+def test_duplicate_medical_condition_is_counted_once():
+    application = build_application(
+        medical_conditions_declared=["Hypertension"]
+    )
+
+    evidence = clean_evidence()
+    evidence.medical.conditions = [
+        MedicalCondition(
+            condition="Hypertension",
+            status="managed",
+        ),
+        MedicalCondition(
+            condition=" hypertension ",
+            status="managed",
+        ),
+    ]
+
+    assessment = evaluate_policy(
+        application,
+        evidence,
+        EVALUATION_DATE,
+    )
+
+    assert assessment.score == 10
+    assert len(assessment.risk_factors) == 1
+
+
+@pytest.mark.parametrize(
+    ("source", "evidence_model", "flag"),
+    [
+        (
+            "identity",
+            IdentityEvidence,
+            ReviewFlag.MISSING_IDENTITY_EVIDENCE,
+        ),
+        (
+            "prescription",
+            PrescriptionEvidence,
+            ReviewFlag.MISSING_PRESCRIPTION_EVIDENCE,
+        ),
+        (
+            "financial",
+            FinancialEvidence,
+            ReviewFlag.MISSING_FINANCIAL_EVIDENCE,
+        ),
+    ],
+)
+def test_missing_evidence_source_requires_review(
+    source,
+    evidence_model,
+    flag,
+):
+    evidence = clean_evidence()
+    setattr(
+        evidence,
+        source,
+        evidence_model(status=EvidenceStatus.NOT_FOUND),
+    )
+
+    assessment = evaluate_policy(
+        build_application(),
+        evidence,
+        EVALUATION_DATE,
+    )
+
+    assert assessment.review_flags == [flag]
+    assert assessment.requires_review is True
+
+
+@pytest.mark.parametrize(
+    ("overrides", "score", "tier"),
+    [
+        (
+            {
+                "date_of_birth": date(1966, 10, 8),
+                "weight_kg": 125,
+            },
+            40,
+            RiskTier.HIGH,
+        ),
+        (
+            {
+                "date_of_birth": date(1956, 10, 8),
+                "tobacco_use": "current",
+            },
+            50,
+            RiskTier.VERY_HIGH,
+        ),
+    ],
+)
+def test_high_scores_map_to_higher_tiers(
+    overrides,
+    score,
+    tier,
+):
+    assessment = evaluate_policy(
+        build_application(**overrides),
+        clean_evidence(),
+        EVALUATION_DATE,
+    )
+
+    assert assessment.score == score
+    assert assessment.tier == tier
+
+
+@pytest.mark.parametrize(
+    ("source", "evidence_model", "flag"),
+    [
+        (
+            "medical",
+            MedicalEvidence,
+            ReviewFlag.MEDICAL_CONFLICT,
+        ),
+        (
+            "prescription",
+            PrescriptionEvidence,
+            ReviewFlag.PRESCRIPTION_CONFLICT,
+        ),
+    ],
+)
+def test_provider_level_conflict_requires_review(
+    source,
+    evidence_model,
+    flag,
+):
+    evidence = clean_evidence()
+    setattr(
+        evidence,
+        source,
+        evidence_model(status=EvidenceStatus.CONFLICT),
+    )
+
+    assessment = evaluate_policy(
+        build_application(),
+        evidence,
+        EVALUATION_DATE,
+    )
+
+    assert assessment.review_flags == [flag]
+    assert assessment.requires_review is True
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "identity_verified",
+        "name_match",
+        "date_of_birth_match",
+        "state_match",
+    ],
+)
+def test_available_identity_mismatch_requires_review(field):
+    evidence = clean_evidence()
+    evidence.identity = evidence.identity.model_copy(
+        update={field: False}
+    )
+
+    assessment = evaluate_policy(
+        build_application(),
+        evidence,
+        EVALUATION_DATE,
+    )
+
+    assert assessment.review_flags == [
+        ReviewFlag.IDENTITY_MISMATCH
+    ]
+    assert assessment.requires_review is True
+
+
+@pytest.mark.parametrize(
+    "financial",
+    [
+        FinancialEvidence(
+            status=EvidenceStatus.AVAILABLE,
+            income_verified=False,
+        ),
+        FinancialEvidence(
+            status=EvidenceStatus.AVAILABLE,
+            income_verified=True,
+            verified_annual_income=60000,
+        ),
+    ],
+)
+def test_available_income_discrepancy_requires_review(financial):
+    evidence = clean_evidence()
+    evidence.financial = financial
+
+    assessment = evaluate_policy(
+        build_application(),
+        evidence,
+        EVALUATION_DATE,
+    )
+
+    assert assessment.review_flags == [
+        ReviewFlag.INCOME_DISCREPANCY
+    ]
+    assert assessment.requires_review is True
+
+
+def test_small_income_difference_does_not_require_review():
+    evidence = clean_evidence()
+    evidence.financial.verified_annual_income = 98500
+
+    assessment = evaluate_policy(
+        build_application(),
+        evidence,
+        EVALUATION_DATE,
+    )
+
+    assert assessment.review_flags == []
+    assert assessment.requires_review is False
+
+
+def test_declared_condition_synonym_is_not_undeclared():
+    application = build_application(
+        medical_conditions_declared=["High Blood Pressure"]
+    )
+
+    evidence = clean_evidence()
+    evidence.medical.conditions = [
+        MedicalCondition(
+            condition="Hypertension",
+            status="managed",
+        )
+    ]
+
+    assessment = evaluate_policy(
+        application,
+        evidence,
+        EVALUATION_DATE,
+    )
+
+    assert assessment.review_flags == []
+    assert assessment.score == 10
 
 
 def test_same_inputs_produce_same_assessment():

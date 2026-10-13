@@ -34,12 +34,6 @@ from underwriting.llm.client import (
 
 APPLICATION_ID = "11111111-1111-4111-8111-111111111111"
 
-
-# ---------------------------------------------------------------------------
-# Fake providers
-# ---------------------------------------------------------------------------
-
-
 class FakeIdentityProvider(IdentityProvider):
     def __init__(
         self,
@@ -96,11 +90,6 @@ class FakeFinancialProvider(FinancialProvider):
         return self.evidence
 
 
-# ---------------------------------------------------------------------------
-# Fake LLM
-# ---------------------------------------------------------------------------
-
-
 class FakeLLMClient(LLMClient):
     def __init__(
         self,
@@ -140,16 +129,11 @@ class FakeLLMClient(LLMClient):
             latency_ms=15,
         )
 
-
-# ---------------------------------------------------------------------------
-# Fixtures and helpers
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def application() -> Application:
     return Application(
         application_id=APPLICATION_ID,
+        ssn="901-00-0001",
         first_name="Aarav",
         last_name="Sharma",
         date_of_birth=date(1988, 4, 15),
@@ -227,11 +211,6 @@ def run_agent(
         ),
         llm_client=llm or FakeLLMClient(),
     )
-
-
-# ---------------------------------------------------------------------------
-# Basic enrichment behavior
-# ---------------------------------------------------------------------------
 
 
 def test_clean_evidence_is_completed(
@@ -345,10 +324,6 @@ def test_undeclared_active_medication_requires_review(
     )
 
 
-# ---------------------------------------------------------------------------
-# Meaningful LLM cross-source reasoning
-# ---------------------------------------------------------------------------
-
 
 def test_cross_source_medical_and_prescription_synthesis(
     application,
@@ -425,10 +400,6 @@ def test_cross_source_medical_and_prescription_synthesis(
     assert "Metformin" in corroboration
     assert "Type 2 Diabetes" in corroboration
 
-
-# ---------------------------------------------------------------------------
-# Identity and financial conflicts
-# ---------------------------------------------------------------------------
 
 
 def test_identity_conflict_requires_review(
@@ -513,9 +484,189 @@ def test_financial_conflict_requires_review(
     )
 
 
-# ---------------------------------------------------------------------------
-# Missing evidence
-# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    ("field", "expected"),
+    [
+        (
+            "identity_verified",
+            "could not verify the applicant",
+        ),
+        (
+            "name_match",
+            "name does not match",
+        ),
+        (
+            "date_of_birth_match",
+            "date of birth does not match",
+        ),
+        (
+            "state_match",
+            "state does not match",
+        ),
+    ],
+)
+def test_identity_mismatch_is_discrepancy(
+    application,
+    field,
+    expected,
+):
+    identity = clean_identity().model_copy(
+        update={field: False}
+    )
+
+    result = run_agent(
+        application=application,
+        identity=identity,
+    )
+
+    assert result.status == EnrichmentStatus.NEEDS_REVIEW
+    assert len(result.discrepancies) == 1
+    assert expected in result.discrepancies[0]
+
+
+@pytest.mark.parametrize(
+    ("medical", "prescription", "expected"),
+    [
+        (
+            MedicalEvidence(status=EvidenceStatus.CONFLICT),
+            None,
+            "Medical evidence contains a provider-level conflict.",
+        ),
+        (
+            None,
+            PrescriptionEvidence(status=EvidenceStatus.CONFLICT),
+            "Prescription evidence contains a provider-level conflict.",
+        ),
+    ],
+)
+def test_provider_level_conflict_is_discrepancy(
+    application,
+    medical,
+    prescription,
+    expected,
+):
+    result = run_agent(
+        application=application,
+        medical=medical,
+        prescription=prescription,
+    )
+
+    assert result.status == EnrichmentStatus.NEEDS_REVIEW
+    assert result.discrepancies == [expected]
+
+
+def test_unverified_income_is_discrepancy(
+    application,
+):
+    financial = FinancialEvidence(
+        status=EvidenceStatus.AVAILABLE,
+        income_verified=False,
+    )
+
+    result = run_agent(
+        application=application,
+        financial=financial,
+    )
+
+    assert result.discrepancies == [
+        "Applicant income could not be verified."
+    ]
+
+
+def test_income_within_tolerance_is_not_discrepancy(
+    application,
+):
+    result = run_agent(
+        application=application,
+        financial=clean_financial(income=88000),
+    )
+
+    assert result.status == EnrichmentStatus.COMPLETED
+    assert result.discrepancies == []
+
+
+def test_declared_condition_synonym_is_not_discrepancy(
+    application,
+):
+    application.medical_conditions_declared = [
+        "High Blood Pressure"
+    ]
+    medical = MedicalEvidence(
+        status=EvidenceStatus.AVAILABLE,
+        conditions=[
+            MedicalCondition(
+                condition="Hypertension",
+                status="managed",
+            )
+        ],
+    )
+
+    result = run_agent(
+        application=application,
+        medical=medical,
+    )
+
+    assert result.discrepancies == []
+
+
+def test_income_mismatch_is_discrepancy(
+    application,
+):
+    result = run_agent(
+        application=application,
+        financial=clean_financial(income=60000),
+    )
+
+    assert result.discrepancies == [
+        (
+            "Verified annual income does not match "
+            "applicant-declared annual income."
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source", "overrides"),
+    [
+        (
+            "identity",
+            {
+                "identity": IdentityEvidence(
+                    status=EvidenceStatus.NOT_FOUND
+                )
+            },
+        ),
+        (
+            "prescription",
+            {
+                "prescription": PrescriptionEvidence(
+                    status=EvidenceStatus.NOT_FOUND
+                )
+            },
+        ),
+        (
+            "financial",
+            {
+                "financial": FinancialEvidence(
+                    status=EvidenceStatus.NOT_FOUND
+                )
+            },
+        ),
+    ],
+)
+def test_missing_evidence_source_requires_review(
+    application,
+    source,
+    overrides,
+):
+    result = run_agent(
+        application=application,
+        **overrides,
+    )
+
+    assert result.status == EnrichmentStatus.NEEDS_REVIEW
+    assert result.discrepancies == []
+    assert result.missing_evidence == [source]
 
 
 def test_missing_medical_evidence_requires_review(
@@ -557,14 +708,10 @@ def test_missing_medical_evidence_requires_review(
     )
 
 
-# ---------------------------------------------------------------------------
-# Matching declarations
-# ---------------------------------------------------------------------------
-
-
 def test_declared_condition_matching_external_evidence_is_completed():
     application = Application(
         application_id=APPLICATION_ID,
+        ssn="902-00-0002",
         first_name="Maya",
         last_name="Patel",
         date_of_birth=date(1982, 7, 20),
@@ -635,11 +782,6 @@ def test_declared_condition_matching_external_evidence_is_completed():
     assert result.missing_evidence == []
 
     assert result.review.corroborating_evidence
-
-
-# ---------------------------------------------------------------------------
-# LLM authority boundaries
-# ---------------------------------------------------------------------------
 
 
 def test_llm_cannot_remove_deterministic_discrepancy(
@@ -719,10 +861,6 @@ def test_llm_cannot_create_authoritative_discrepancy(
     assert result.missing_evidence == []
 
 
-# ---------------------------------------------------------------------------
-# Structured-output validation
-# ---------------------------------------------------------------------------
-
 
 def test_consistent_review_cannot_contain_material_concerns(
     application,
@@ -768,11 +906,6 @@ def test_malformed_llm_response_is_rejected(
             application=application,
             llm=llm,
         )
-
-
-# ---------------------------------------------------------------------------
-# Prompt / observability checks
-# ---------------------------------------------------------------------------
 
 
 def test_authoritative_findings_are_sent_to_llm(
@@ -823,6 +956,25 @@ def test_authoritative_findings_are_sent_to_llm(
     )
 
     assert "Type 2 Diabetes" in llm.user_prompt
+
+
+def test_direct_identifiers_are_not_sent_to_llm(
+    application,
+):
+    llm = FakeLLMClient()
+
+    run_agent(
+        application=application,
+        llm=llm,
+    )
+
+    assert application.ssn not in llm.user_prompt
+    assert application.first_name not in llm.user_prompt
+    assert application.last_name not in llm.user_prompt
+    assert (
+        application.date_of_birth.isoformat()
+        not in llm.user_prompt
+    )
 
 
 def test_llm_prompt_limits_model_authority(

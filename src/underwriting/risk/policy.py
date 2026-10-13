@@ -4,6 +4,12 @@ from underwriting.domain.application import (
     Application,
     TobaccoUse,
 )
+from underwriting.enrichment.matching import (
+    identity_mismatches,
+    income_discrepancy,
+    normalize_condition,
+    normalize_text,
+)
 from underwriting.enrichment.models import (
     EnrichmentEvidence,
     EvidenceStatus,
@@ -15,7 +21,7 @@ from underwriting.risk.models import (
     RiskTier,
 )
 
-POLICY_VERSION = "synthetic-life-v1"
+POLICY_VERSION = "synthetic-life-v2"
 
 
 _MEDICAL_CONDITION_POINTS: dict[str, int] = {
@@ -25,10 +31,6 @@ _MEDICAL_CONDITION_POINTS: dict[str, int] = {
     "hypertension": 10,
     "type 2 diabetes": 20,
 }
-
-
-def _normalize_text(value: str) -> str:
-    return value.strip().casefold()
 
 
 def calculate_age(
@@ -203,7 +205,7 @@ def _medical_factors(
     seen_conditions: set[str] = set()
 
     for condition in evidence.medical.conditions:
-        normalized = _normalize_text(
+        normalized = normalize_condition(
             condition.condition
         )
 
@@ -257,6 +259,35 @@ def _evidence_review_flags(
             ReviewFlag.FINANCIAL_CONFLICT
         )
 
+    if evidence.medical.status == EvidenceStatus.CONFLICT:
+        flags.append(
+            ReviewFlag.MEDICAL_CONFLICT
+        )
+
+    if evidence.prescription.status == EvidenceStatus.CONFLICT:
+        flags.append(
+            ReviewFlag.PRESCRIPTION_CONFLICT
+        )
+
+    if (
+        evidence.identity.status == EvidenceStatus.AVAILABLE
+        and identity_mismatches(evidence.identity)
+    ):
+        flags.append(
+            ReviewFlag.IDENTITY_MISMATCH
+        )
+
+    if (
+        evidence.financial.status == EvidenceStatus.AVAILABLE
+        and income_discrepancy(
+            evidence.financial,
+            application.annual_income,
+        )
+    ):
+        flags.append(
+            ReviewFlag.INCOME_DISCREPANCY
+        )
+
     if evidence.identity.status == EvidenceStatus.NOT_FOUND:
         flags.append(
             ReviewFlag.MISSING_IDENTITY_EVIDENCE
@@ -278,14 +309,14 @@ def _evidence_review_flags(
         )
 
     declared_conditions = {
-        _normalize_text(condition)
+        normalize_condition(condition)
         for condition in application.medical_conditions_declared
     }
 
     if evidence.medical.status == EvidenceStatus.AVAILABLE:
         for condition in evidence.medical.conditions:
             if (
-                _normalize_text(condition.condition)
+                normalize_condition(condition.condition)
                 not in declared_conditions
             ):
                 flags.append(
@@ -294,7 +325,7 @@ def _evidence_review_flags(
                 break
 
     declared_medications = {
-        _normalize_text(medication)
+        normalize_text(medication)
         for medication in application.medications_declared
     }
 
@@ -302,7 +333,7 @@ def _evidence_review_flags(
         for prescription in evidence.prescription.prescriptions:
             if (
                 prescription.active
-                and _normalize_text(
+                and normalize_text(
                     prescription.medication
                 )
                 not in declared_medications

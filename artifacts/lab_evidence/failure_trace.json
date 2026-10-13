@@ -1,0 +1,353 @@
+{
+  "case_id": "e94ae0b9-f7b8-4d88-adeb-15038ee52aee",
+  "trace_id": "4dd4ab8e-b715-421e-bb4a-84e57978e347",
+  "status": "processing_failed",
+  "errors": [
+    "Workflow execution failed: WorkflowExecutionError: risk_scoring failed after 3 attempts: Synthetic risk-scoring timeout."
+  ],
+  "recommendation": null,
+  "risk_assessment": null,
+  "totals": {
+    "duration_ms": 1.1842500025522895,
+    "input_tokens": 840,
+    "output_tokens": 180,
+    "estimated_cost_usd": 0.000234
+  },
+  "traces": [
+    {
+      "stage": "intake",
+      "component": "intake_agent",
+      "attempt": 1,
+      "status": "success",
+      "started_at": "2026-10-13T06:41:37.712222+00:00",
+      "finished_at": "2026-10-13T06:41:37.712279+00:00",
+      "duration_ms": 0.045000000682193786,
+      "llm_latency_ms": 18.0,
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "estimated_cost_usd": 0.000117,
+      "input_sources": {
+        "raw_application": "user_input"
+      },
+      "tools_used": [],
+      "received": {
+        "raw_application": {
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1990-XX-XX",
+          "state": "PA",
+          "annual_income": 90000,
+          "coverage_amount": 500000,
+          "occupation": "Software Engineer",
+          "tobacco_use": "never",
+          "height_cm": 175,
+          "weight_kg": 75,
+          "medical_conditions_declared": [],
+          "medications_declared": []
+        }
+      },
+      "produced": {
+        "status": "accepted",
+        "application": {
+          "application_id": "6929e4b5-ec28-4a6b-acc7-17c345a1bef5",
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1990-XX-XX",
+          "state": "PA",
+          "annual_income": 90000,
+          "coverage_amount": 500000,
+          "occupation": "Software Engineer",
+          "tobacco_use": "never",
+          "height_cm": 175,
+          "weight_kg": 75.0,
+          "medical_conditions_declared": [],
+          "medications_declared": []
+        },
+        "review": {
+          "needs_review": false,
+          "summary": "Applicant-provided information is clear.",
+          "concerns": []
+        },
+        "validation_errors": []
+      },
+      "state_writes": [
+        "application"
+      ],
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "stage": "enrichment",
+      "component": "enrichment_agent",
+      "attempt": 1,
+      "status": "success",
+      "started_at": "2026-10-13T06:41:37.715302+00:00",
+      "finished_at": "2026-10-13T06:41:37.716297+00:00",
+      "duration_ms": 0.9928330000548158,
+      "llm_latency_ms": 18.0,
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "estimated_cost_usd": 0.000117,
+      "input_sources": {
+        "application": "intake_agent"
+      },
+      "tools_used": [
+        "SyntheticIdentityProvider",
+        "SyntheticMedicalHistoryProvider",
+        "SyntheticPrescriptionProvider",
+        "SyntheticFinancialProvider"
+      ],
+      "received": {
+        "application": {
+          "application_id": "6929e4b5-ec28-4a6b-acc7-17c345a1bef5",
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1990-XX-XX",
+          "state": "PA",
+          "annual_income": 90000,
+          "coverage_amount": 500000,
+          "occupation": "Software Engineer",
+          "tobacco_use": "never",
+          "height_cm": 175,
+          "weight_kg": 75.0,
+          "medical_conditions_declared": [],
+          "medications_declared": []
+        }
+      },
+      "produced": {
+        "status": "completed",
+        "evidence": {
+          "identity": {
+            "status": "available",
+            "identity_verified": true,
+            "name_match": true,
+            "date_of_birth_match": true,
+            "state_match": true
+          },
+          "medical": {
+            "status": "available",
+            "conditions": []
+          },
+          "prescription": {
+            "status": "available",
+            "prescriptions": []
+          },
+          "financial": {
+            "status": "available",
+            "income_verified": true,
+            "verified_annual_income": 90000
+          }
+        },
+        "discrepancies": [],
+        "missing_evidence": [],
+        "review": {
+          "evidence_consistency": "consistent",
+          "summary": "External evidence is consistent with the application.",
+          "material_concerns": [],
+          "corroborating_evidence": [
+            "Identity and financial records match."
+          ]
+        }
+      },
+      "state_writes": [
+        "enrichment"
+      ],
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "stage": "risk_scoring",
+      "component": "risk_scoring_agent",
+      "attempt": 1,
+      "status": "failed",
+      "started_at": "2026-10-13T06:41:37.718911+00:00",
+      "finished_at": "2026-10-13T06:41:37.718962+00:00",
+      "duration_ms": 0.04887500108452514,
+      "llm_latency_ms": 0.0,
+      "model": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0,
+      "input_sources": {
+        "application": "intake_agent",
+        "evidence": "enrichment_agent"
+      },
+      "tools_used": [],
+      "received": {
+        "application": {
+          "application_id": "6929e4b5-ec28-4a6b-acc7-17c345a1bef5",
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1990-XX-XX",
+          "state": "PA",
+          "annual_income": 90000,
+          "coverage_amount": 500000,
+          "occupation": "Software Engineer",
+          "tobacco_use": "never",
+          "height_cm": 175,
+          "weight_kg": 75.0,
+          "medical_conditions_declared": [],
+          "medications_declared": []
+        },
+        "evidence": {
+          "identity": {
+            "status": "available",
+            "identity_verified": true,
+            "name_match": true,
+            "date_of_birth_match": true,
+            "state_match": true
+          },
+          "medical": {
+            "status": "available",
+            "conditions": []
+          },
+          "prescription": {
+            "status": "available",
+            "prescriptions": []
+          },
+          "financial": {
+            "status": "available",
+            "income_verified": true,
+            "verified_annual_income": 90000
+          }
+        }
+      },
+      "produced": {},
+      "state_writes": [],
+      "error_type": "TimeoutError",
+      "error_message": "Synthetic risk-scoring timeout."
+    },
+    {
+      "stage": "risk_scoring",
+      "component": "risk_scoring_agent",
+      "attempt": 2,
+      "status": "failed",
+      "started_at": "2026-10-13T06:41:37.720496+00:00",
+      "finished_at": "2026-10-13T06:41:37.720553+00:00",
+      "duration_ms": 0.05454200072563253,
+      "llm_latency_ms": 0.0,
+      "model": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0,
+      "input_sources": {
+        "application": "intake_agent",
+        "evidence": "enrichment_agent"
+      },
+      "tools_used": [],
+      "received": {
+        "application": {
+          "application_id": "6929e4b5-ec28-4a6b-acc7-17c345a1bef5",
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1990-XX-XX",
+          "state": "PA",
+          "annual_income": 90000,
+          "coverage_amount": 500000,
+          "occupation": "Software Engineer",
+          "tobacco_use": "never",
+          "height_cm": 175,
+          "weight_kg": 75.0,
+          "medical_conditions_declared": [],
+          "medications_declared": []
+        },
+        "evidence": {
+          "identity": {
+            "status": "available",
+            "identity_verified": true,
+            "name_match": true,
+            "date_of_birth_match": true,
+            "state_match": true
+          },
+          "medical": {
+            "status": "available",
+            "conditions": []
+          },
+          "prescription": {
+            "status": "available",
+            "prescriptions": []
+          },
+          "financial": {
+            "status": "available",
+            "income_verified": true,
+            "verified_annual_income": 90000
+          }
+        }
+      },
+      "produced": {},
+      "state_writes": [],
+      "error_type": "TimeoutError",
+      "error_message": "Synthetic risk-scoring timeout."
+    },
+    {
+      "stage": "risk_scoring",
+      "component": "risk_scoring_agent",
+      "attempt": 3,
+      "status": "failed",
+      "started_at": "2026-10-13T06:41:37.721882+00:00",
+      "finished_at": "2026-10-13T06:41:37.721927+00:00",
+      "duration_ms": 0.043000000005122274,
+      "llm_latency_ms": 0.0,
+      "model": null,
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "estimated_cost_usd": 0.0,
+      "input_sources": {
+        "application": "intake_agent",
+        "evidence": "enrichment_agent"
+      },
+      "tools_used": [],
+      "received": {
+        "application": {
+          "application_id": "6929e4b5-ec28-4a6b-acc7-17c345a1bef5",
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1990-XX-XX",
+          "state": "PA",
+          "annual_income": 90000,
+          "coverage_amount": 500000,
+          "occupation": "Software Engineer",
+          "tobacco_use": "never",
+          "height_cm": 175,
+          "weight_kg": 75.0,
+          "medical_conditions_declared": [],
+          "medications_declared": []
+        },
+        "evidence": {
+          "identity": {
+            "status": "available",
+            "identity_verified": true,
+            "name_match": true,
+            "date_of_birth_match": true,
+            "state_match": true
+          },
+          "medical": {
+            "status": "available",
+            "conditions": []
+          },
+          "prescription": {
+            "status": "available",
+            "prescriptions": []
+          },
+          "financial": {
+            "status": "available",
+            "income_verified": true,
+            "verified_annual_income": 90000
+          }
+        }
+      },
+      "produced": {},
+      "state_writes": [],
+      "error_type": "TimeoutError",
+      "error_message": "Synthetic risk-scoring timeout."
+    }
+  ]
+}

@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 from typing import Any
-from uuid import UUID
 
 
 class SyntheticDataStoreError(Exception):
@@ -12,8 +11,9 @@ class SyntheticDataStore:
     """
     Read-only access to a synthetic external enrichment dataset.
 
-    Records are keyed by application ID to provide deterministic,
-    auditable test scenarios.
+    Records are keyed by the applicant's SSN, mirroring how external
+    data vendors are searched by a strong personal identifier rather
+    than by the insurer's internal application ID.
     """
 
     def __init__(self, file_path: str | Path) -> None:
@@ -21,20 +21,18 @@ class SyntheticDataStore:
 
     def get_record(
         self,
-        application_id: UUID,
+        key: str,
     ) -> dict[str, Any] | None:
         records = self._load_records()
 
-        record = records.get(
-            str(application_id)
-        )
+        record = records.get(key)
 
         if record is None:
             return None
 
         if not isinstance(record, dict):
             raise SyntheticDataStoreError(
-                f"Record for application {application_id} "
+                f"Record in {self.file_path.name} "
                 "must be a JSON object."
             )
 

@@ -43,3 +43,24 @@ class CaseRepository(ABC):
         concurrency control and return the newly persisted case state.
         """
         raise NotImplementedError
+
+    @abstractmethod
+    def find_by_idempotency_key(
+        self,
+        idempotency_key: str,
+    ) -> CaseState | None:
+        """
+        Return the case created with this idempotency key, if any.
+
+        Implementations must enforce that an idempotency key belongs to
+        at most one case.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def find_open_by_applicant(
+        self,
+        applicant_key: str,
+    ) -> list[CaseState]:
+        """Return the applicant's cases that are not in a closed status."""
+        raise NotImplementedError

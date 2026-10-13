@@ -18,6 +18,11 @@ class ReviewFlag(StrEnum):
 
     IDENTITY_CONFLICT = "identity_conflict"
     FINANCIAL_CONFLICT = "financial_conflict"
+    MEDICAL_CONFLICT = "medical_conflict"
+    PRESCRIPTION_CONFLICT = "prescription_conflict"
+
+    IDENTITY_MISMATCH = "identity_mismatch"
+    INCOME_DISCREPANCY = "income_discrepancy"
 
     MISSING_IDENTITY_EVIDENCE = "missing_identity_evidence"
     MISSING_MEDICAL_EVIDENCE = "missing_medical_evidence"

@@ -1,9 +1,11 @@
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from underwriting.domain.case import CaseState
+from underwriting.domain.case import CLOSED_CASE_STATUSES, CaseState
 from underwriting.repositories.case_repository import (
     CaseAlreadyExistsError,
     CaseNotFoundError,
@@ -19,10 +21,18 @@ class SQLiteCaseRepository(CaseRepository):
         self.database_path = str(database_path)
         self._initialize_database()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        """Open a connection that commits on success and always closes."""
+
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
-        return connection
+
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _initialize_database(self) -> None:
         with self._connect() as connection:
@@ -35,10 +45,53 @@ class SQLiteCaseRepository(CaseRepository):
                     version INTEGER NOT NULL,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
+                    idempotency_key TEXT,
+                    applicant_key TEXT,
                     case_data TEXT NOT NULL
                 )
                 """
             )
+
+            self._ensure_optional_columns(connection)
+
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                    idx_underwriting_cases_idempotency_key
+                ON underwriting_cases (idempotency_key)
+                """
+            )
+
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS
+                    idx_underwriting_cases_applicant_key
+                ON underwriting_cases (applicant_key)
+                """
+            )
+
+    @staticmethod
+    def _ensure_optional_columns(
+        connection: sqlite3.Connection,
+    ) -> None:
+        """
+        Add columns introduced after the original table schema.
+        """
+
+        column_names = {
+            column["name"]
+            for column in connection.execute(
+                "PRAGMA table_info(underwriting_cases)"
+            ).fetchall()
+        }
+
+        for column_name in ("idempotency_key", "applicant_key"):
+            if column_name not in column_names:
+                connection.execute(
+                    "ALTER TABLE underwriting_cases "
+                    f"ADD COLUMN {column_name} TEXT"
+                )
+
     def create(self, case: CaseState) -> None:
         try:
             with self._connect() as connection:
@@ -51,9 +104,11 @@ class SQLiteCaseRepository(CaseRepository):
                         version,
                         created_at,
                         updated_at,
+                        idempotency_key,
+                        applicant_key,
                         case_data
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         str(case.metadata.case_id),
@@ -62,13 +117,17 @@ class SQLiteCaseRepository(CaseRepository):
                         case.metadata.version,
                         case.metadata.created_at.isoformat(),
                         case.metadata.updated_at.isoformat(),
+                        case.metadata.idempotency_key,
+                        case.metadata.applicant_key,
                         case.model_dump_json(),
                     ),
                 )
         except sqlite3.IntegrityError as exc:
             raise CaseAlreadyExistsError(
-                f"Case {case.metadata.case_id} already exists."
+                f"Case {case.metadata.case_id} or its idempotency "
+                "key already exists."
             ) from exc
+
     def get(self, case_id: UUID) -> CaseState:
         with self._connect() as connection:
             row = connection.execute(
@@ -106,6 +165,7 @@ class SQLiteCaseRepository(CaseRepository):
                     status = ?,
                     version = ?,
                     updated_at = ?,
+                    applicant_key = ?,
                     case_data = ?
                 WHERE case_id = ?
                   AND version = ?
@@ -115,6 +175,7 @@ class SQLiteCaseRepository(CaseRepository):
                     persisted_case.status.value,
                     new_version,
                     updated_at.isoformat(),
+                    persisted_case.metadata.applicant_key,
                     persisted_case.model_dump_json(),
                     str(persisted_case.metadata.case_id),
                     current_version,
@@ -142,3 +203,48 @@ class SQLiteCaseRepository(CaseRepository):
                 )
 
         return persisted_case
+
+    def find_by_idempotency_key(
+        self,
+        idempotency_key: str,
+    ) -> CaseState | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT case_data
+                FROM underwriting_cases
+                WHERE idempotency_key = ?
+                """,
+                (idempotency_key,),
+            ).fetchone()
+
+        if row is None:
+            return None
+
+        return CaseState.model_validate_json(row["case_data"])
+
+    def find_open_by_applicant(
+        self,
+        applicant_key: str,
+    ) -> list[CaseState]:
+        closed_statuses = sorted(
+            status.value for status in CLOSED_CASE_STATUSES
+        )
+        placeholders = ", ".join("?" for _ in closed_statuses)
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT case_data
+                FROM underwriting_cases
+                WHERE applicant_key = ?
+                  AND status NOT IN ({placeholders})
+                ORDER BY created_at
+                """,
+                (applicant_key, *closed_statuses),
+            ).fetchall()
+
+        return [
+            CaseState.model_validate_json(row["case_data"])
+            for row in rows
+        ]

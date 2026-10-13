@@ -160,9 +160,8 @@ def print_case_result(
 
     if result.application is not None:
         print(
-            "applicant: "
-            f"{result.application.first_name} "
-            f"{result.application.last_name}"
+            "application_id: "
+            f"{result.application.application_id}"
         )
 
     if result.risk_assessment is not None:
@@ -210,21 +209,48 @@ def print_case_result(
     total_duration_ms = 0.0
     total_input_tokens = 0
     total_output_tokens = 0
+    total_cost_usd = 0.0
 
     for trace in traces:
         total_duration_ms += trace.duration_ms
         total_input_tokens += trace.input_tokens
         total_output_tokens += trace.output_tokens
+        total_cost_usd += trace.estimated_cost_usd
 
         print(
             f"{trace.stage:<16} "
+            f"component={trace.component or '-'} "
             f"attempt={trace.attempt} "
             f"status={trace.status.value:<7} "
+            f"started_at={trace.started_at.isoformat()} "
             f"duration_ms={trace.duration_ms:.2f} "
             f"model={trace.model or '-'} "
             f"tokens="
             f"{trace.input_tokens}/"
-            f"{trace.output_tokens}"
+            f"{trace.output_tokens} "
+            f"equiv_cloud_cost_usd="
+            f"{trace.estimated_cost_usd:.8f}"
+        )
+        print(
+            "  input_sources="
+            + json.dumps(trace.input_sources)
+        )
+        if trace.tools_used:
+            print(
+                "  tools_used="
+                + ", ".join(trace.tools_used)
+            )
+        print(
+            "  received="
+            + json.dumps(trace.received, default=str)
+        )
+        print(
+            "  produced="
+            + json.dumps(trace.produced, default=str)
+        )
+        print(
+            "  state_writes="
+            + json.dumps(trace.state_writes)
         )
 
         if trace.error_type is not None:
@@ -248,6 +274,10 @@ def print_case_result(
     print(
         f"total_output_tokens: "
         f"{total_output_tokens}"
+    )
+    print(
+        f"total_equiv_cloud_cost_usd (local inference is free): "
+        f"{total_cost_usd:.8f}"
     )
 
 

@@ -3,7 +3,10 @@ from datetime import date
 
 from pydantic import BaseModel, Field, ValidationError
 
-from underwriting.domain.application import Application
+from underwriting.domain.application import (
+    LLM_EXCLUDED_FIELDS,
+    Application,
+)
 from underwriting.enrichment.models import EnrichmentEvidence
 from underwriting.llm.client import LLMClient, LLMResponse
 from underwriting.risk.models import RiskAssessment
@@ -139,7 +142,8 @@ def _build_review_prompt(
 ) -> str:
     payload = {
         "application": application.model_dump(
-            mode="json"
+            mode="json",
+            exclude=LLM_EXCLUDED_FIELDS,
         ),
         "external_evidence": evidence.model_dump(
             mode="json"
@@ -191,7 +195,7 @@ def risk_scoring_agent(
     assessment = evaluate_policy(
         application=application,
         evidence=evidence,
-        evaluation_date=evaluation_date,
+        evaluation_date=evaluation_date or date.today(),
     )
 
     llm_response = llm_client.generate(

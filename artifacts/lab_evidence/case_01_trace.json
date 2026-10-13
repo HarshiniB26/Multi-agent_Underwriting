@@ -1,0 +1,362 @@
+{
+  "case_id": "4ea89b88-d659-4b22-ab61-1ee7023c3982",
+  "trace_id": "cb890862-1176-4730-a93e-31eca568ee01",
+  "status": "recommendation_completed",
+  "errors": [],
+  "recommendation": {
+    "recommendation": {
+      "recommendation_policy_version": "synthetic-recommendation-v1",
+      "risk_policy_version": "synthetic-life-v2",
+      "decision": "approve",
+      "reason_code": "automated_approval",
+      "risk_score": 5,
+      "risk_tier": "low",
+      "requires_review": false
+    },
+    "review": {
+      "summary": "Authoritative recommendation follows the risk assessment.",
+      "decision_basis": [
+        "tier",
+        "score"
+      ],
+      "precedence_explanation": null,
+      "human_review_focus": []
+    },
+    "llm_response": {
+      "content": "{\"summary\": \"Authoritative recommendation follows the risk assessment.\", \"decision_basis\": [\"tier\", \"score\"], \"precedence_explanation\": null, \"human_review_focus\": []}",
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "latency_ms": 18.0
+    }
+  },
+  "risk_assessment": {
+    "policy_version": "synthetic-life-v2",
+    "evaluation_date": "2026-10-08",
+    "age": 36,
+    "bmi": 24.49,
+    "coverage_to_income_ratio": 5.56,
+    "score": 5,
+    "tier": "low",
+    "risk_factors": [
+      {
+        "code": "COVERAGE_RATIO_5_TO_8",
+        "description": "Coverage-to-income ratio is greater than 5 and no greater than 8.",
+        "points": 5
+      }
+    ],
+    "review_flags": [],
+    "requires_review": false
+  },
+  "totals": {
+    "duration_ms": 1.0262910000164993,
+    "input_tokens": 1680,
+    "output_tokens": 360,
+    "estimated_cost_usd": 0.000468
+  },
+  "traces": [
+    {
+      "stage": "intake",
+      "component": "intake_agent",
+      "attempt": 1,
+      "status": "success",
+      "started_at": "2026-10-13T06:41:37.663361+00:00",
+      "finished_at": "2026-10-13T06:41:37.663461+00:00",
+      "duration_ms": 0.09595799929229543,
+      "llm_latency_ms": 18.0,
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "estimated_cost_usd": 0.000117,
+      "input_sources": {
+        "raw_application": "user_input"
+      },
+      "tools_used": [],
+      "received": {
+        "raw_application": {
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1990-XX-XX",
+          "state": "PA",
+          "annual_income": 90000,
+          "coverage_amount": 500000,
+          "occupation": "Software Engineer",
+          "tobacco_use": "never",
+          "height_cm": 175,
+          "weight_kg": 75,
+          "medical_conditions_declared": [],
+          "medications_declared": []
+        }
+      },
+      "produced": {
+        "status": "accepted",
+        "application": {
+          "application_id": "f68b403f-2d87-4e49-a12d-18fff8baa2bd",
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1990-XX-XX",
+          "state": "PA",
+          "annual_income": 90000,
+          "coverage_amount": 500000,
+          "occupation": "Software Engineer",
+          "tobacco_use": "never",
+          "height_cm": 175,
+          "weight_kg": 75.0,
+          "medical_conditions_declared": [],
+          "medications_declared": []
+        },
+        "review": {
+          "needs_review": false,
+          "summary": "Applicant-provided information is clear.",
+          "concerns": []
+        },
+        "validation_errors": []
+      },
+      "state_writes": [
+        "application"
+      ],
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "stage": "enrichment",
+      "component": "enrichment_agent",
+      "attempt": 1,
+      "status": "success",
+      "started_at": "2026-10-13T06:41:37.667095+00:00",
+      "finished_at": "2026-10-13T06:41:37.667905+00:00",
+      "duration_ms": 0.8069579998846166,
+      "llm_latency_ms": 18.0,
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "estimated_cost_usd": 0.000117,
+      "input_sources": {
+        "application": "intake_agent"
+      },
+      "tools_used": [
+        "SyntheticIdentityProvider",
+        "SyntheticMedicalHistoryProvider",
+        "SyntheticPrescriptionProvider",
+        "SyntheticFinancialProvider"
+      ],
+      "received": {
+        "application": {
+          "application_id": "f68b403f-2d87-4e49-a12d-18fff8baa2bd",
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1990-XX-XX",
+          "state": "PA",
+          "annual_income": 90000,
+          "coverage_amount": 500000,
+          "occupation": "Software Engineer",
+          "tobacco_use": "never",
+          "height_cm": 175,
+          "weight_kg": 75.0,
+          "medical_conditions_declared": [],
+          "medications_declared": []
+        }
+      },
+      "produced": {
+        "status": "completed",
+        "evidence": {
+          "identity": {
+            "status": "available",
+            "identity_verified": true,
+            "name_match": true,
+            "date_of_birth_match": true,
+            "state_match": true
+          },
+          "medical": {
+            "status": "available",
+            "conditions": []
+          },
+          "prescription": {
+            "status": "available",
+            "prescriptions": []
+          },
+          "financial": {
+            "status": "available",
+            "income_verified": true,
+            "verified_annual_income": 90000
+          }
+        },
+        "discrepancies": [],
+        "missing_evidence": [],
+        "review": {
+          "evidence_consistency": "consistent",
+          "summary": "External evidence is consistent with the application.",
+          "material_concerns": [],
+          "corroborating_evidence": [
+            "Identity and financial records match."
+          ]
+        }
+      },
+      "state_writes": [
+        "enrichment"
+      ],
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "stage": "risk_scoring",
+      "component": "risk_scoring_agent",
+      "attempt": 1,
+      "status": "success",
+      "started_at": "2026-10-13T06:41:37.670516+00:00",
+      "finished_at": "2026-10-13T06:41:37.670599+00:00",
+      "duration_ms": 0.08112499926937744,
+      "llm_latency_ms": 18.0,
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "estimated_cost_usd": 0.000117,
+      "input_sources": {
+        "application": "intake_agent",
+        "evidence": "enrichment_agent"
+      },
+      "tools_used": [],
+      "received": {
+        "application": {
+          "application_id": "f68b403f-2d87-4e49-a12d-18fff8baa2bd",
+          "ssn": "[REDACTED]",
+          "first_name": "[REDACTED]",
+          "last_name": "[REDACTED]",
+          "date_of_birth": "1990-XX-XX",
+          "state": "PA",
+          "annual_income": 90000,
+          "coverage_amount": 500000,
+          "occupation": "Software Engineer",
+          "tobacco_use": "never",
+          "height_cm": 175,
+          "weight_kg": 75.0,
+          "medical_conditions_declared": [],
+          "medications_declared": []
+        },
+        "evidence": {
+          "identity": {
+            "status": "available",
+            "identity_verified": true,
+            "name_match": true,
+            "date_of_birth_match": true,
+            "state_match": true
+          },
+          "medical": {
+            "status": "available",
+            "conditions": []
+          },
+          "prescription": {
+            "status": "available",
+            "prescriptions": []
+          },
+          "financial": {
+            "status": "available",
+            "income_verified": true,
+            "verified_annual_income": 90000
+          }
+        }
+      },
+      "produced": {
+        "assessment": {
+          "policy_version": "synthetic-life-v2",
+          "evaluation_date": "2026-10-08",
+          "age": 36,
+          "bmi": 24.49,
+          "coverage_to_income_ratio": 5.56,
+          "score": 5,
+          "tier": "low",
+          "risk_factors": [
+            {
+              "code": "COVERAGE_RATIO_5_TO_8",
+              "description": "Coverage-to-income ratio is greater than 5 and no greater than 8.",
+              "points": 5
+            }
+          ],
+          "review_flags": [],
+          "requires_review": false
+        },
+        "review": {
+          "summary": "Deterministic risk assessment synthesized.",
+          "primary_drivers": [
+            "age",
+            "coverage"
+          ],
+          "factor_interactions": [],
+          "evidence_context": [],
+          "review_context": []
+        }
+      },
+      "state_writes": [
+        "risk_assessment"
+      ],
+      "error_type": null,
+      "error_message": null
+    },
+    {
+      "stage": "recommendation",
+      "component": "recommendation_agent",
+      "attempt": 1,
+      "status": "success",
+      "started_at": "2026-10-13T06:41:37.673545+00:00",
+      "finished_at": "2026-10-13T06:41:37.673589+00:00",
+      "duration_ms": 0.04225000157020986,
+      "llm_latency_ms": 18.0,
+      "model": "fake-model",
+      "input_tokens": 420,
+      "output_tokens": 90,
+      "estimated_cost_usd": 0.000117,
+      "input_sources": {
+        "assessment": "risk_scoring_agent"
+      },
+      "tools_used": [],
+      "received": {
+        "assessment": {
+          "policy_version": "synthetic-life-v2",
+          "evaluation_date": "2026-10-08",
+          "age": 36,
+          "bmi": 24.49,
+          "coverage_to_income_ratio": 5.56,
+          "score": 5,
+          "tier": "low",
+          "risk_factors": [
+            {
+              "code": "COVERAGE_RATIO_5_TO_8",
+              "description": "Coverage-to-income ratio is greater than 5 and no greater than 8.",
+              "points": 5
+            }
+          ],
+          "review_flags": [],
+          "requires_review": false
+        }
+      },
+      "produced": {
+        "recommendation": {
+          "recommendation_policy_version": "synthetic-recommendation-v1",
+          "risk_policy_version": "synthetic-life-v2",
+          "decision": "approve",
+          "reason_code": "automated_approval",
+          "risk_score": 5,
+          "risk_tier": "low",
+          "requires_review": false
+        },
+        "review": {
+          "summary": "Authoritative recommendation follows the risk assessment.",
+          "decision_basis": [
+            "tier",
+            "score"
+          ],
+          "precedence_explanation": null,
+          "human_review_focus": []
+        }
+      },
+      "state_writes": [
+        "recommendation"
+      ],
+      "error_type": null,
+      "error_message": null
+    }
+  ]
+}

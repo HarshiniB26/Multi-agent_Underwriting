@@ -55,6 +55,7 @@ class FakeLLMClient(LLMClient):
 @pytest.fixture
 def valid_raw_application() -> dict[str, Any]:
     return {
+        "ssn": "901-00-0001",
         "first_name": "Aarav",
         "last_name": "Sharma",
         "date_of_birth": "1988-04-15",
@@ -186,6 +187,79 @@ def test_missing_required_field_is_invalid(
     assert llm.call_count == 0
 
 
+def test_client_supplied_application_id_is_rejected(
+    valid_raw_application,
+):
+    llm = FakeLLMClient()
+
+    result = intake_agent(
+        raw_application={
+            **valid_raw_application,
+            "application_id": "11111111-1111-4111-8111-111111111111",
+        },
+        llm_client=llm,
+    )
+
+    assert result.status == IntakeStatus.INVALID
+    assert result.validation_errors == [
+        (
+            "application_id: is assigned by the server "
+            "and must not be supplied"
+        )
+    ]
+    assert llm.call_count == 0
+
+
+def test_server_assigns_application_id(
+    valid_raw_application,
+):
+    first = intake_agent(
+        raw_application=valid_raw_application,
+        llm_client=FakeLLMClient(),
+    )
+    second = intake_agent(
+        raw_application=valid_raw_application,
+        llm_client=FakeLLMClient(),
+    )
+
+    assert first.application.application_id != (
+        second.application.application_id
+    )
+
+
+def test_direct_identifiers_are_not_sent_to_llm(
+    valid_raw_application,
+):
+    llm = FakeLLMClient()
+
+    intake_agent(
+        raw_application=valid_raw_application,
+        llm_client=llm,
+    )
+
+    for field in ("ssn", "first_name", "last_name", "date_of_birth"):
+        assert f'"{field}"' not in llm.user_prompt
+        assert str(valid_raw_application[field]) not in llm.user_prompt
+
+
+def test_non_object_application_reports_model_level_error():
+    llm = FakeLLMClient()
+
+    result = intake_agent(
+        raw_application=["not", "an", "object"],
+        llm_client=llm,
+    )
+
+    assert result.status == IntakeStatus.INVALID
+    assert result.validation_errors == [
+        (
+            "Input should be a valid dictionary "
+            "or instance of Application"
+        )
+    ]
+    assert llm.call_count == 0
+
+
 def test_contradictory_llm_review_is_rejected(
     valid_raw_application,
 ):
@@ -306,7 +380,7 @@ def test_validated_application_is_sent_to_llm(
 
     assert llm.user_prompt is not None
 
-    assert '"first_name": "Aarav"' in llm.user_prompt
+    assert '"annual_income": 90000' in llm.user_prompt
 
     assert (
         '"occupation": "Software Engineer"'

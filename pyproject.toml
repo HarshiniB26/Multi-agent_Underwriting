@@ -25,6 +25,16 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 
+[tool.coverage.run]
+source = ["underwriting"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
+exclude_also = [
+    "raise NotImplementedError",
+]
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

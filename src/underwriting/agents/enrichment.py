@@ -3,7 +3,16 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
-from underwriting.domain.application import Application
+from underwriting.domain.application import (
+    LLM_EXCLUDED_FIELDS,
+    Application,
+)
+from underwriting.enrichment.matching import (
+    identity_mismatches,
+    income_matches,
+    normalize_condition,
+    normalize_text,
+)
 from underwriting.enrichment.models import (
     EnrichmentEvidence,
     EvidenceStatus,
@@ -167,8 +176,21 @@ Example with a material concern:
 """.strip()
 
 
-def _normalize(value: str) -> str:
-    return value.strip().casefold()
+_IDENTITY_MISMATCH_MESSAGES = {
+    "identity_verified": (
+        "External identity evidence could not verify the applicant."
+    ),
+    "name_match": (
+        "Applicant name does not match external identity evidence."
+    ),
+    "date_of_birth_match": (
+        "Applicant date of birth does not match "
+        "external identity evidence."
+    ),
+    "state_match": (
+        "Applicant state does not match external identity evidence."
+    ),
+}
 
 
 def _find_discrepancies(
@@ -191,29 +213,13 @@ def _find_discrepancies(
         )
 
     elif identity.status == EvidenceStatus.AVAILABLE:
-        if identity.identity_verified is False:
-            discrepancies.append(
-                "External identity evidence could not verify the applicant."
-            )
-
-        if identity.name_match is False:
-            discrepancies.append(
-                "Applicant name does not match external identity evidence."
-            )
-
-        if identity.date_of_birth_match is False:
-            discrepancies.append(
-                "Applicant date of birth does not match "
-                "external identity evidence."
-            )
-
-        if identity.state_match is False:
-            discrepancies.append(
-                "Applicant state does not match external identity evidence."
-            )
+        discrepancies.extend(
+            _IDENTITY_MISMATCH_MESSAGES[check]
+            for check in identity_mismatches(identity)
+        )
 
     declared_conditions = {
-        _normalize(condition)
+        normalize_condition(condition)
         for condition in application.medical_conditions_declared
     }
 
@@ -224,14 +230,17 @@ def _find_discrepancies(
 
     elif evidence.medical.status == EvidenceStatus.AVAILABLE:
         for condition in evidence.medical.conditions:
-            if _normalize(condition.condition) not in declared_conditions:
+            if (
+                normalize_condition(condition.condition)
+                not in declared_conditions
+            ):
                 discrepancies.append(
                     "External medical evidence contains an undeclared "
                     f"condition: {condition.condition}."
                 )
 
     declared_medications = {
-        _normalize(medication)
+        normalize_text(medication)
         for medication in application.medications_declared
     }
 
@@ -244,7 +253,7 @@ def _find_discrepancies(
         for prescription in evidence.prescription.prescriptions:
             if (
                 prescription.active
-                and _normalize(prescription.medication)
+                and normalize_text(prescription.medication)
                 not in declared_medications
             ):
                 discrepancies.append(
@@ -267,8 +276,10 @@ def _find_discrepancies(
 
         if (
             financial.verified_annual_income is not None
-            and financial.verified_annual_income
-            != application.annual_income
+            and not income_matches(
+                financial.verified_annual_income,
+                application.annual_income,
+            )
         ):
             discrepancies.append(
                 "Verified annual income does not match "
@@ -309,7 +320,10 @@ def _build_review_prompt(
     missing_evidence: list[str],
 ) -> str:
     payload = {
-        "application": application.model_dump(mode="json"),
+        "application": application.model_dump(
+            mode="json",
+            exclude=LLM_EXCLUDED_FIELDS,
+        ),
         "external_evidence": evidence.model_dump(mode="json"),
         "authoritative_discrepancies": discrepancies,
         "authoritative_missing_evidence": missing_evidence,

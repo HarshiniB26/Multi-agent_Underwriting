@@ -28,6 +28,7 @@ def test_intake_agent_with_real_ollama():
     )
 
     raw_application = {
+        "ssn": "901-00-0001",
         "first_name": "Aarav",
         "last_name": "Sharma",
         "date_of_birth": date(1990, 5, 15),

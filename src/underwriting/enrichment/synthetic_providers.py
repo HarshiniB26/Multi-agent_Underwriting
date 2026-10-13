@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic import ValidationError
 
 from underwriting.domain.application import Application
@@ -20,9 +22,52 @@ from underwriting.enrichment.synthetic_store import (
     SyntheticDataStoreError,
 )
 
+SUBJECT_DATE_OF_BIRTH = "subject_date_of_birth"
+
+
+def _find_subject_record(
+    store: SyntheticDataStore,
+    application: Application,
+    *,
+    require_date_of_birth_match: bool,
+) -> dict[str, Any] | None:
+    """
+    Look up a vendor record by SSN.
+
+    Returns None when the vendor has no record for the SSN. When the
+    record belongs to someone with a different date of birth, the
+    returned record has CONFLICT status so the mismatch is reviewed
+    rather than silently attributed to the applicant.
+    """
+
+    record = store.get_record(application.ssn)
+
+    if record is None:
+        return None
+
+    record = dict(record)
+    subject_date_of_birth = record.pop(
+        SUBJECT_DATE_OF_BIRTH,
+        None,
+    )
+
+    if (
+        require_date_of_birth_match
+        and subject_date_of_birth
+        != application.date_of_birth.isoformat()
+    ):
+        return {"status": EvidenceStatus.CONFLICT}
+
+    return record
+
 
 class SyntheticIdentityProvider(IdentityProvider):
-    """Identity provider backed by synthetic JSON records."""
+    """
+    Identity provider backed by synthetic JSON records.
+
+    The vendor is searched by SSN and itself reports whether the
+    applicant's name, date of birth, and state match its records.
+    """
 
     def __init__(
         self,
@@ -35,8 +80,10 @@ class SyntheticIdentityProvider(IdentityProvider):
         application: Application,
     ) -> IdentityEvidence:
         try:
-            record = self.store.get_record(
-                application.application_id
+            record = _find_subject_record(
+                self.store,
+                application,
+                require_date_of_birth_match=False,
             )
 
             if record is None:
@@ -73,8 +120,10 @@ class SyntheticMedicalHistoryProvider(
         application: Application,
     ) -> MedicalEvidence:
         try:
-            record = self.store.get_record(
-                application.application_id
+            record = _find_subject_record(
+                self.store,
+                application,
+                require_date_of_birth_match=True,
             )
 
             if record is None:
@@ -111,8 +160,10 @@ class SyntheticPrescriptionProvider(
         application: Application,
     ) -> PrescriptionEvidence:
         try:
-            record = self.store.get_record(
-                application.application_id
+            record = _find_subject_record(
+                self.store,
+                application,
+                require_date_of_birth_match=True,
             )
 
             if record is None:
@@ -147,8 +198,10 @@ class SyntheticFinancialProvider(FinancialProvider):
         application: Application,
     ) -> FinancialEvidence:
         try:
-            record = self.store.get_record(
-                application.application_id
+            record = _find_subject_record(
+                self.store,
+                application,
+                require_date_of_birth_match=True,
             )
 
             if record is None:

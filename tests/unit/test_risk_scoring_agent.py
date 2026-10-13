@@ -73,6 +73,7 @@ def build_application(
     **overrides,
 ) -> Application:
     data = {
+        "ssn": "901-00-0001",
         "first_name": "Synthetic",
         "last_name": "Applicant",
         "date_of_birth": date(1990, 5, 15),
@@ -277,6 +278,26 @@ def test_authoritative_assessment_is_in_llm_prompt():
     assert llm.user_prompt is not None
     assert '"score": 20' in llm.user_prompt
     assert '"tier": "moderate"' in llm.user_prompt
+
+
+def test_direct_identifiers_are_not_sent_to_llm():
+    llm = FakeLLMClient()
+    application = build_application()
+
+    risk_scoring_agent(
+        application=application,
+        evidence=clean_evidence(),
+        evaluation_date=EVALUATION_DATE,
+        llm_client=llm,
+    )
+
+    assert application.ssn not in llm.user_prompt
+    assert application.first_name not in llm.user_prompt
+    assert application.last_name not in llm.user_prompt
+    assert (
+        application.date_of_birth.isoformat()
+        not in llm.user_prompt
+    )
 
 
 def test_malformed_llm_response_is_rejected():

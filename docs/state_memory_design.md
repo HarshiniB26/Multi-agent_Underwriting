@@ -81,6 +81,67 @@ applicant's processing context.
 
 Case isolation will also be verified through automated tests.
 
+## Identifiers and Repeat Submissions
+
+| Identifier | Assigned by | Purpose |
+|---|---|---|
+| application_id | Server, at intake | Identifies one request for coverage |
+| case_id / trace_id | Server, at case creation | Identifies one underwriting run and its traces |
+| ssn | Applicant | Strong identifier used to search external evidence |
+| applicant_key | Server (hash of ssn) | Finds other cases for the same person |
+| idempotency_key | Client (optional) | Makes a resubmitted request safe |
+
+Intake rejects a client-supplied application_id.
+
+External evidence providers are searched by SSN, not by any insurer
+identifier. Name and date of birth alone are not unique, so medical,
+prescription, and financial records found by SSN are only attributed to
+the applicant when the record's date of birth also matches; otherwise the
+evidence is marked as a conflict for human review. The identity provider
+reports name, date of birth, and state matches itself.
+
+## Tracing and PII
+
+Every stage attempt writes one trace record. Together they answer, for
+one case:
+
+| Question | Trace fields |
+|---|---|
+| Which agent ran? | stage, component |
+| What did it read, and from whom? | received, input_sources, tools_used |
+| What did it produce and write to shared state? | produced, state_writes |
+| When, and for how long? | started_at, finished_at, duration_ms, llm_latency_ms |
+| What did it cost? | model, input_tokens, output_tokens, estimated_cost_usd |
+| Did it fail or retry? | status, attempt, error_type, error_message |
+
+input_sources names the producer of each received value: user_input for
+the submission, otherwise the agent that wrote it. LLM usage is metered
+per attempt, so an attempt that fails after a model call (for example on
+unparseable output) is still costed.
+
+The case repository is the only store that holds applicant PII, and it
+needs encryption at rest and access control in production. Everything
+else is minimized:
+
+- LLM prompts never include SSN, name, or date of birth. No agent's
+  reasoning depends on them.
+- Trace payloads always mask SSN and name, and reduce date of birth to
+  its year so age-driven decisions remain debuggable.
+- Every string in a trace, including error messages, is scrubbed of
+  SSN-shaped values as a backstop for fields added later.
+- applicant_key is a plain SHA-256 of the SSN in this lab. Because SSNs
+  have only about one billion values, production should use a keyed
+  HMAC with the key held in a secrets manager.
+
+Repeat submissions are handled in two ways:
+
+- Same idempotency_key: the existing case is returned and no new
+  processing starts. A unique index enforces one case per key.
+- Same applicant with an open case (any status other than
+  RECOMMENDATION_COMPLETED or PROCESSING_FAILED): a new case is
+  processed, recorded in possible_duplicate_of, and routed to
+  HUMAN_REVIEW so an underwriter sees both applications together.
+
 ## Agent Access Boundaries
 
 Agents have explicit responsibilities:

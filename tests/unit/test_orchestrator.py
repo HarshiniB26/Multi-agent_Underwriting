@@ -4,8 +4,13 @@ from pathlib import Path
 
 import pytest
 
+from underwriting.agents.intake import IntakeResult, IntakeStatus
 from underwriting.domain.application import Application
-from underwriting.domain.case import CaseStatus
+from underwriting.domain.case import (
+    CaseMetadata,
+    CaseState,
+    CaseStatus,
+)
 from underwriting.enrichment.models import (
     EvidenceStatus,
     FinancialEvidence,
@@ -14,6 +19,7 @@ from underwriting.enrichment.models import (
     PrescriptionEvidence,
 )
 from underwriting.enrichment.providers import (
+    EnrichmentProviderTimeoutError,
     FinancialProvider,
     IdentityProvider,
     MedicalHistoryProvider,
@@ -22,15 +28,19 @@ from underwriting.enrichment.providers import (
 from underwriting.llm.client import LLMClient, LLMResponse
 from underwriting.observability.models import TraceStatus
 from underwriting.observability.trace_store import InMemoryTraceStore
+from underwriting.repositories.case_repository import (
+    CaseAlreadyExistsError,
+)
 from underwriting.repositories.sqlite_case_repository import (
     SQLiteCaseRepository,
 )
+from underwriting.workflow import orchestrator as orchestrator_module
 from underwriting.workflow.orchestrator import (
     RetryPolicy,
     UnderwritingOrchestrator,
 )
 
-APPLICATION_ID = "11111111-1111-4111-8111-111111111111"
+SSN = "901-00-0001"
 EVALUATION_DATE = date(2026, 10, 8)
 
 
@@ -147,6 +157,45 @@ class RecoveringLLMClient(LLMClient):
         )
 
 
+class TimeoutOnRiskScoringLLMClient(LLMClient):
+    """
+    Complete intake and enrichment, then raise TimeoutError
+    on every risk-scoring call.
+    """
+
+    def __init__(
+        self,
+        responses: list[str],
+    ) -> None:
+        self.responses = responses
+        self.call_count = 0
+
+    def generate(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> LLMResponse:
+        self.call_count += 1
+
+        # Intake and enrichment succeed. Risk scoring is
+        # the third LLM call and every retry of it fails.
+        if self.call_count >= 3:
+            raise TimeoutError(
+                "Synthetic risk-scoring timeout."
+            )
+
+        content = self.responses[self.call_count - 1]
+
+        return LLMResponse(
+            content=content,
+            model="fake-model",
+            input_tokens=100,
+            output_tokens=25,
+            latency_ms=10,
+        )
+
+
 class ProgrammingErrorLLMClient(LLMClient):
     """LLM test double that simulates a programming defect."""
 
@@ -227,7 +276,7 @@ class FakeFinancialProvider(FinancialProvider):
 
 def raw_application() -> dict:
     return {
-        "application_id": APPLICATION_ID,
+        "ssn": SSN,
         "first_name": "Aarav",
         "last_name": "Sharma",
         "date_of_birth": "1988-04-15",
@@ -569,30 +618,185 @@ def test_retry_exhaustion_becomes_processing_failed(
     )
 
 
-def test_programming_error_is_not_retried(
+def test_programming_error_is_not_retried_and_fails_case(
     tmp_path,
 ):
     llm = ProgrammingErrorLLMClient()
+    trace_store = InMemoryTraceStore()
 
     orchestrator = build_orchestrator(
         tmp_path=tmp_path,
         llm_client=llm,
+        trace_store=trace_store,
         retry_policy=RetryPolicy(
             max_attempts=3,
             backoff_seconds=0,
         ),
     )
 
-    with pytest.raises(
-        TypeError,
-        match="Synthetic programming error",
-    ):
-        orchestrator.start_case(
-            raw_application(),
-            evaluation_date=EVALUATION_DATE,
-        )
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
 
     assert llm.call_count == 1
+    assert (
+        result.status
+        == CaseStatus.PROCESSING_FAILED
+    )
+    assert any(
+        "intake failed: TypeError: Synthetic programming error"
+        in error
+        for error in result.errors
+    )
+
+    traces = trace_store.get_by_trace_id(
+        result.metadata.trace_id
+    )
+
+    assert len(traces) == 1
+    assert traces[0].status == TraceStatus.FAILED
+    assert traces[0].error_type == "TypeError"
+
+
+def test_failed_case_is_persisted(
+    tmp_path,
+):
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=SequentialFakeLLMClient(["not-json"]),
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    persisted = orchestrator.repository.get(
+        result.metadata.case_id
+    )
+
+    assert persisted.status == CaseStatus.PROCESSING_FAILED
+    assert persisted == result
+
+
+@pytest.mark.parametrize(
+    ("responses", "stage"),
+    [
+        (["not-json"], "intake"),
+        (happy_path_responses()[:1] + ["not-json"], "enrichment"),
+        (happy_path_responses()[:2] + ["not-json"], "risk_scoring"),
+        (happy_path_responses()[:3] + ["not-json"], "recommendation"),
+    ],
+)
+def test_invalid_llm_output_at_any_stage_fails_case(
+    tmp_path,
+    responses,
+    stage,
+):
+    llm = SequentialFakeLLMClient(responses)
+    trace_store = InMemoryTraceStore()
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+        trace_store=trace_store,
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    assert (
+        result.status
+        == CaseStatus.PROCESSING_FAILED
+    )
+    assert llm.call_count == len(responses)
+    assert any(
+        f"{stage} failed: ValueError: LLM returned an invalid"
+        in error
+        for error in result.errors
+    )
+
+    failed_traces = [
+        trace
+        for trace in trace_store.get_by_trace_id(
+            result.metadata.trace_id
+        )
+        if trace.status == TraceStatus.FAILED
+    ]
+
+    assert [trace.stage for trace in failed_traces] == [stage]
+    assert failed_traces[0].error_type == "ValueError"
+
+
+def test_enrichment_provider_timeout_is_retried(
+    tmp_path,
+):
+    class FlakyIdentityProvider(FakeIdentityProvider):
+        def __init__(self) -> None:
+            self.call_count = 0
+
+        def get_identity_evidence(
+            self,
+            application: Application,
+        ) -> IdentityEvidence:
+            self.call_count += 1
+
+            if self.call_count == 1:
+                raise EnrichmentProviderTimeoutError(
+                    "Synthetic identity provider timeout."
+                )
+
+            return super().get_identity_evidence(application)
+
+    identity_provider = FlakyIdentityProvider()
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=SequentialFakeLLMClient(
+            happy_path_responses()
+        ),
+        retry_policy=RetryPolicy(
+            max_attempts=3,
+            backoff_seconds=0,
+        ),
+    )
+    orchestrator.identity_provider = identity_provider
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    assert identity_provider.call_count == 2
+    assert (
+        result.status
+        == CaseStatus.RECOMMENDATION_COMPLETED
+    )
+
+
+def test_missing_evaluation_date_defaults_to_today(
+    tmp_path,
+):
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=SequentialFakeLLMClient(
+            happy_path_responses()
+        ),
+    )
+
+    result = orchestrator.start_case(raw_application())
+
+    assert (
+        result.status
+        == CaseStatus.RECOMMENDATION_COMPLETED
+    )
+    assert (
+        result.risk_assessment["evaluation_date"]
+        == date.today().isoformat()
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -675,8 +879,20 @@ def test_successful_traces_capture_llm_metrics(
         assert trace.output_tokens == 25
         assert trace.duration_ms >= 0
         assert trace.llm_latency_ms == 10
+        assert trace.estimated_cost_usd == 0.00003
+        assert trace.received
+        assert trace.produced
         assert trace.error_type is None
         assert trace.error_message is None
+
+    assert "raw_application" in traces[0].received
+    assert traces[0].produced["status"] == "accepted"
+    assert "application" in traces[1].received
+    assert "evidence" in traces[1].produced
+    assert "evidence" in traces[2].received
+    assert "assessment" in traces[2].produced
+    assert "assessment" in traces[3].received
+    assert "recommendation" in traces[3].produced
 
 
 def test_workflow_traces_share_case_and_trace_ids(
@@ -813,17 +1029,15 @@ def test_retry_exhaustion_records_every_attempt(
     )
 
 
-def test_trace_records_do_not_contain_application_payload(
-    tmp_path,
-):
-    llm = SequentialFakeLLMClient(
-        happy_path_responses()
-    )
+def serialized_traces_for(
+    tmp_path: Path,
+    responses: list[str],
+) -> str:
     trace_store = InMemoryTraceStore()
 
     orchestrator = build_orchestrator(
         tmp_path=tmp_path,
-        llm_client=llm,
+        llm_client=SequentialFakeLLMClient(responses),
         trace_store=trace_store,
     )
 
@@ -836,7 +1050,9 @@ def test_trace_records_do_not_contain_application_payload(
         result.metadata.trace_id
     )
 
-    serialized_traces = json.dumps(
+    assert traces
+
+    return json.dumps(
         [
             trace.model_dump(
                 mode="json"
@@ -845,15 +1061,113 @@ def test_trace_records_do_not_contain_application_payload(
         ]
     )
 
-    assert "Aarav" not in serialized_traces
-    assert "Sharma" not in serialized_traces
-    assert APPLICATION_ID not in serialized_traces
-    assert "90000" not in serialized_traces
+
+@pytest.mark.parametrize(
+    "responses",
+    [
+        pytest.param(happy_path_responses(), id="success"),
+        pytest.param(["not json"], id="intake_failure"),
+        pytest.param(
+            happy_path_responses()[:1] + ["not json"],
+            id="enrichment_failure",
+        ),
+        pytest.param(
+            happy_path_responses()[:3] + ["not json"],
+            id="recommendation_failure",
+        ),
+    ],
+)
+def test_no_applicant_pii_reaches_trace_store(
+    tmp_path,
+    responses,
+):
+    serialized_traces = serialized_traces_for(
+        tmp_path,
+        responses,
+    )
+
+    applicant = raw_application()
+
+    for field in ("first_name", "last_name", "ssn"):
+        assert applicant[field] not in serialized_traces
+
+    assert str(applicant["date_of_birth"]) not in serialized_traces
+    assert "901000001" not in serialized_traces
+    assert "[REDACTED]" in serialized_traces
+
+
+def test_trace_keeps_birth_year_for_age_debugging(
+    tmp_path,
+):
+    serialized_traces = serialized_traces_for(
+        tmp_path,
+        happy_path_responses(),
+    )
+
+    assert '"date_of_birth": "1988-XX-XX"' in serialized_traces
 
 
 # ---------------------------------------------------------------------------
 # Retry policy validation
 # ---------------------------------------------------------------------------
+
+
+def test_risk_scoring_timeout_retries_then_escalates(
+    tmp_path,
+):
+    llm = TimeoutOnRiskScoringLLMClient(
+        happy_path_responses()
+    )
+    trace_store = InMemoryTraceStore()
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+        trace_store=trace_store,
+        retry_policy=RetryPolicy(
+            max_attempts=3,
+            backoff_seconds=0,
+        ),
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    assert (
+        result.status
+        == CaseStatus.PROCESSING_FAILED
+    )
+    assert result.recommendation is None
+    assert any(
+        "risk_scoring failed after 3 attempts"
+        in error
+        for error in result.errors
+    )
+
+    traces = trace_store.get_by_trace_id(
+        result.metadata.trace_id
+    )
+    risk_traces = [
+        trace
+        for trace in traces
+        if trace.stage == "risk_scoring"
+    ]
+
+    assert len(risk_traces) == 3
+    assert all(
+        trace.status == TraceStatus.FAILED
+        for trace in risk_traces
+    )
+    assert all(
+        trace.error_type == "TimeoutError"
+        for trace in risk_traces
+    )
+    assert all(
+        trace.received.get("evidence")
+        for trace in risk_traces
+    )
 
 
 def test_retry_policy_rejects_zero_attempts():
@@ -874,3 +1188,602 @@ def test_retry_policy_rejects_negative_backoff():
         RetryPolicy(
             backoff_seconds=-1,
         )
+
+
+def test_retry_backoff_sleeps_between_attempts(
+    tmp_path,
+    monkeypatch,
+):
+    sleeps: list[float] = []
+    monkeypatch.setattr(
+        orchestrator_module,
+        "sleep",
+        sleeps.append,
+    )
+
+    llm = FailingLLMClient()
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+        retry_policy=RetryPolicy(
+            max_attempts=3,
+            backoff_seconds=0.5,
+        ),
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    assert (
+        result.status
+        == CaseStatus.PROCESSING_FAILED
+    )
+
+    assert sleeps == [0.5, 1.0]
+
+
+# ---------------------------------------------------------------------------
+# Defensive paths
+# ---------------------------------------------------------------------------
+
+
+def test_recommendation_requiring_review_routes_to_human_review(
+    tmp_path,
+):
+    application = raw_application()
+    application["annual_income"] = 40000
+
+    llm = SequentialFakeLLMClient(
+        happy_path_responses()
+    )
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+    )
+
+    result = orchestrator.start_case(
+        application,
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    assert result.status == CaseStatus.HUMAN_REVIEW
+    assert result.recommendation is not None
+    assert (
+        result.recommendation["recommendation"]["requires_review"]
+        is True
+    )
+    assert llm.call_count == 4
+
+
+def test_identity_mismatch_is_referred_not_approved(
+    tmp_path,
+):
+    class NameMismatchIdentityProvider(FakeIdentityProvider):
+        def get_identity_evidence(
+            self,
+            application: Application,
+        ) -> IdentityEvidence:
+            return super().get_identity_evidence(
+                application
+            ).model_copy(update={"name_match": False})
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=SequentialFakeLLMClient(
+            happy_path_responses()
+        ),
+    )
+    orchestrator.identity_provider = NameMismatchIdentityProvider()
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    assert result.status == CaseStatus.HUMAN_REVIEW
+    assert (
+        result.recommendation["recommendation"]["decision"]
+        == "refer"
+    )
+    assert result.risk_assessment["review_flags"] == [
+        "identity_mismatch"
+    ]
+
+
+def test_accepted_intake_without_application_fails_case(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        orchestrator_module,
+        "intake_agent",
+        lambda **kwargs: IntakeResult(
+            status=IntakeStatus.ACCEPTED,
+        ),
+    )
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=SequentialFakeLLMClient([]),
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    assert (
+        result.status
+        == CaseStatus.PROCESSING_FAILED
+    )
+    assert any(
+        "did not contain a validated application" in error
+        for error in result.errors
+    )
+
+
+# ---------------------------------------------------------------------------
+# Idempotent submission
+# ---------------------------------------------------------------------------
+
+
+def test_same_idempotency_key_returns_existing_case(
+    tmp_path,
+):
+    first_llm = SequentialFakeLLMClient(
+        happy_path_responses()
+    )
+    first = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=first_llm,
+    ).start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+        idempotency_key="submit-123",
+    )
+
+    retry_llm = SequentialFakeLLMClient([])
+    retried = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=retry_llm,
+    ).start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+        idempotency_key="submit-123",
+    )
+
+    assert retried == first
+    assert retry_llm.call_count == 0
+
+
+def test_different_idempotency_keys_start_separate_cases(
+    tmp_path,
+):
+    first = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=SequentialFakeLLMClient(
+            happy_path_responses()
+        ),
+    ).start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+        idempotency_key="submit-1",
+    )
+
+    second = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=SequentialFakeLLMClient(
+            happy_path_responses()
+        ),
+    ).start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+        idempotency_key="submit-2",
+    )
+
+    assert first.metadata.case_id != second.metadata.case_id
+
+
+class LateIdempotencyRepository(SQLiteCaseRepository):
+    """Simulates another worker creating the case between lookup and insert."""
+
+    def __init__(self, database_path: Path) -> None:
+        super().__init__(database_path)
+        self.lookups = 0
+
+    def find_by_idempotency_key(
+        self,
+        idempotency_key: str,
+    ) -> CaseState | None:
+        self.lookups += 1
+
+        if self.lookups == 1:
+            return None
+
+        return super().find_by_idempotency_key(idempotency_key)
+
+
+def test_concurrent_submission_with_same_key_returns_winner(
+    tmp_path,
+):
+    winner = CaseState(
+        metadata=CaseMetadata(idempotency_key="submit-123")
+    )
+    SQLiteCaseRepository(tmp_path / "underwriting.db").create(winner)
+
+    llm = SequentialFakeLLMClient([])
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+    )
+    orchestrator.repository = LateIdempotencyRepository(
+        tmp_path / "underwriting.db"
+    )
+
+    result = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+        idempotency_key="submit-123",
+    )
+
+    assert result == winner
+    assert llm.call_count == 0
+
+
+def test_case_id_collision_without_idempotency_key_is_raised(
+    tmp_path,
+):
+    class CollidingRepository(SQLiteCaseRepository):
+        def create(self, case: CaseState) -> None:
+            raise CaseAlreadyExistsError("Synthetic collision.")
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=SequentialFakeLLMClient([]),
+    )
+    orchestrator.repository = CollidingRepository(
+        tmp_path / "underwriting.db"
+    )
+
+    with pytest.raises(
+        CaseAlreadyExistsError,
+        match="Synthetic collision",
+    ):
+        orchestrator.start_case(raw_application())
+
+
+# ---------------------------------------------------------------------------
+# Repeat applications from the same person
+# ---------------------------------------------------------------------------
+
+
+def needs_review_responses() -> list[str]:
+    return [
+        json.dumps(
+            {
+                "needs_review": True,
+                "summary": "Occupation requires clarification.",
+                "concerns": ["Occupation is too vague."],
+            }
+        )
+    ]
+
+
+def run_case(
+    tmp_path: Path,
+    responses: list[str],
+    application: dict | None = None,
+):
+    return build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=SequentialFakeLLMClient(responses),
+    ).start_case(
+        application or raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+
+def test_same_applicant_with_open_case_is_flagged_for_review(
+    tmp_path,
+):
+    first = run_case(tmp_path, needs_review_responses())
+    assert first.status == CaseStatus.HUMAN_REVIEW
+
+    second = run_case(tmp_path, happy_path_responses())
+
+    assert second.status == CaseStatus.HUMAN_REVIEW
+    assert second.possible_duplicate_of == [
+        first.metadata.case_id
+    ]
+    assert any(
+        f"Possible duplicate of open case(s): {first.metadata.case_id}"
+        in error
+        for error in second.errors
+    )
+    assert second.recommendation is not None
+    assert (
+        second.metadata.applicant_key
+        == first.metadata.applicant_key
+    )
+
+
+def test_duplicate_flag_is_persisted_when_intake_needs_review(
+    tmp_path,
+):
+    first = run_case(tmp_path, needs_review_responses())
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=SequentialFakeLLMClient(
+            needs_review_responses()
+        ),
+    )
+    second = orchestrator.start_case(
+        raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    persisted = orchestrator.repository.get(
+        second.metadata.case_id
+    )
+
+    assert persisted.possible_duplicate_of == [
+        first.metadata.case_id
+    ]
+    assert persisted == second
+
+
+def test_same_applicant_after_closed_case_is_not_flagged(
+    tmp_path,
+):
+    first = run_case(tmp_path, happy_path_responses())
+    assert first.status == CaseStatus.RECOMMENDATION_COMPLETED
+
+    second = run_case(tmp_path, happy_path_responses())
+
+    assert second.status == CaseStatus.RECOMMENDATION_COMPLETED
+    assert second.possible_duplicate_of == []
+
+
+def test_different_applicant_is_not_flagged(
+    tmp_path,
+):
+    run_case(tmp_path, needs_review_responses())
+
+    other_applicant = raw_application()
+    other_applicant["ssn"] = "902-00-0002"
+
+    second = run_case(
+        tmp_path,
+        happy_path_responses(),
+        other_applicant,
+    )
+
+    assert second.status == CaseStatus.RECOMMENDATION_COMPLETED
+    assert second.possible_duplicate_of == []
+
+
+class FailingTerminalSaveRepository(SQLiteCaseRepository):
+    """Repository that loses its connection when saving a terminal case."""
+
+    def save(self, case: CaseState) -> CaseState:
+        if case.status == CaseStatus.HUMAN_REVIEW:
+            raise ConnectionError(
+                "Synthetic database connection failure."
+            )
+
+        return super().save(case)
+
+
+def test_failure_after_terminal_transition_is_not_overwritten(
+    tmp_path,
+):
+    llm = SequentialFakeLLMClient(
+        [
+            json.dumps(
+                {
+                    "needs_review": True,
+                    "summary": "Occupation requires clarification.",
+                    "concerns": ["Occupation is too vague."],
+                }
+            )
+        ]
+    )
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm,
+    )
+    orchestrator.repository = FailingTerminalSaveRepository(
+        tmp_path / "underwriting.db"
+    )
+
+    with pytest.raises(
+        ConnectionError,
+        match="Synthetic database connection failure",
+    ):
+        orchestrator.start_case(
+            raw_application(),
+            evaluation_date=EVALUATION_DATE,
+        )
+
+# ---------------------------------------------------------------------------
+# Trace lineage
+# ---------------------------------------------------------------------------
+
+
+def run_traced_case(
+    tmp_path: Path,
+    llm_client: LLMClient,
+    application: dict | None = None,
+):
+    trace_store = InMemoryTraceStore()
+
+    orchestrator = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=llm_client,
+        trace_store=trace_store,
+    )
+
+    result = orchestrator.start_case(
+        application or raw_application(),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    return result, trace_store.get_by_trace_id(
+        result.metadata.trace_id
+    )
+
+
+def test_traces_record_which_agent_ran_and_data_lineage(
+    tmp_path,
+):
+    _, traces = run_traced_case(
+        tmp_path,
+        SequentialFakeLLMClient(happy_path_responses()),
+    )
+
+    assert [
+        (trace.component, trace.input_sources, trace.state_writes)
+        for trace in traces
+    ] == [
+        (
+            "intake_agent",
+            {"raw_application": "user_input"},
+            ["application"],
+        ),
+        (
+            "enrichment_agent",
+            {"application": "intake_agent"},
+            ["enrichment"],
+        ),
+        (
+            "risk_scoring_agent",
+            {
+                "application": "intake_agent",
+                "evidence": "enrichment_agent",
+            },
+            ["risk_assessment"],
+        ),
+        (
+            "recommendation_agent",
+            {"assessment": "risk_scoring_agent"},
+            ["recommendation"],
+        ),
+    ]
+
+    for trace in traces:
+        assert set(trace.input_sources) == set(trace.received)
+        assert trace.finished_at is not None
+        assert trace.finished_at >= trace.started_at
+
+
+def test_enrichment_trace_lists_the_tools_it_called(
+    tmp_path,
+):
+    _, traces = run_traced_case(
+        tmp_path,
+        SequentialFakeLLMClient(happy_path_responses()),
+    )
+
+    tools_by_stage = {
+        trace.stage: trace.tools_used
+        for trace in traces
+    }
+
+    assert tools_by_stage == {
+        "intake": [],
+        "enrichment": [
+            "FakeIdentityProvider",
+            "FakeMedicalProvider",
+            "FakePrescriptionProvider",
+            "FakeFinancialProvider",
+        ],
+        "risk_scoring": [],
+        "recommendation": [],
+    }
+
+
+def test_invalid_intake_trace_writes_no_state(
+    tmp_path,
+):
+    application = raw_application()
+    del application["annual_income"]
+
+    _, traces = run_traced_case(
+        tmp_path,
+        SequentialFakeLLMClient([]),
+        application,
+    )
+
+    assert len(traces) == 1
+    assert traces[0].status == TraceStatus.SUCCESS
+    assert traces[0].produced["status"] == "invalid"
+    assert traces[0].state_writes == []
+    assert traces[0].model is None
+    assert traces[0].estimated_cost_usd == 0
+
+
+def test_failed_attempt_still_records_llm_usage_and_cost(
+    tmp_path,
+):
+    _, traces = run_traced_case(
+        tmp_path,
+        SequentialFakeLLMClient(["not json"]),
+    )
+
+    assert len(traces) == 1
+
+    failed = traces[0]
+
+    assert failed.status == TraceStatus.FAILED
+    assert failed.state_writes == []
+    assert failed.model == "fake-model"
+    assert failed.input_tokens == 100
+    assert failed.output_tokens == 25
+    assert failed.llm_latency_ms == 10
+    assert failed.estimated_cost_usd > 0
+
+
+def test_retried_attempt_is_not_billed_for_earlier_attempts(
+    tmp_path,
+):
+    _, traces = run_traced_case(
+        tmp_path,
+        RecoveringLLMClient(happy_path_responses()),
+    )
+
+    first_attempt, second_attempt = traces[:2]
+
+    assert first_attempt.input_tokens == 0
+    assert first_attempt.model is None
+    assert second_attempt.input_tokens == 100
+
+
+class LeakyErrorLLMClient(LLMClient):
+    """LLM test double whose error message echoes an SSN."""
+
+    def generate(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> LLMResponse:
+        raise ValueError(f"upstream rejected subject {SSN}")
+
+
+def test_error_messages_are_scrubbed_of_ssns(
+    tmp_path,
+):
+    _, traces = run_traced_case(
+        tmp_path,
+        LeakyErrorLLMClient(),
+    )
+
+    assert traces[0].error_message == (
+        "upstream rejected subject [REDACTED-SSN]"
+    )

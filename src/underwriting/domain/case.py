@@ -20,11 +20,33 @@ class CaseStatus(StrEnum):
     PROCESSING_FAILED = "processing_failed"
 
 
+CLOSED_CASE_STATUSES = frozenset(
+    {
+        CaseStatus.RECOMMENDATION_COMPLETED,
+        CaseStatus.PROCESSING_FAILED,
+    }
+)
+"""
+Statuses that end a case for duplicate-detection purposes.
+
+HUMAN_REVIEW is deliberately not closed: an underwriter has not yet
+decided the case, so a new application from the same person must be
+reviewed alongside it.
+"""
+
+
 class CaseMetadata(BaseModel):
     """Metadata used to identify, trace, and version a case."""
 
     case_id: UUID = Field(default_factory=uuid4)
     trace_id: UUID = Field(default_factory=uuid4)
+
+    idempotency_key: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=200,
+    )
+    applicant_key: str | None = None
 
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC)
@@ -51,5 +73,7 @@ class CaseState(BaseModel):
     enrichment: dict[str, Any] | None = None
     risk_assessment: dict[str, Any] | None = None
     recommendation: dict[str, Any] | None = None
+
+    possible_duplicate_of: list[UUID] = Field(default_factory=list)
 
     errors: list[str] = Field(default_factory=list)

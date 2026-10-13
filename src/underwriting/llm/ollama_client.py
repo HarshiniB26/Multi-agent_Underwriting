@@ -14,6 +14,10 @@ class LLMProviderError(Exception):
     """Raised when the LLM provider returns an invalid or failed response."""
 
 
+class LLMServerError(LLMProviderError, ConnectionError):
+    """Raised for transient provider-side (HTTP 5xx) failures."""
+
+
 class OllamaLLMClient(LLMClient):
     """LLM client backed by a locally running Ollama server."""
 
@@ -39,6 +43,8 @@ class OllamaLLMClient(LLMClient):
             "system": system_prompt,
             "prompt": user_prompt,
             "stream": False,
+            "format": "json",
+            "options": {"temperature": 0},
         }
 
         request = Request(
@@ -57,14 +63,20 @@ class OllamaLLMClient(LLMClient):
             ) as response:
                 response_body = response.read().decode("utf-8")
 
+        except HTTPError as exc:
+            error_class = (
+                LLMServerError
+                if exc.code >= 500
+                else LLMProviderError
+            )
+
+            raise error_class(
+                f"Ollama returned HTTP status {exc.code}."
+            ) from exc
+
         except (URLError, TimeoutError) as exc:
             raise LLMConnectionError(
                 f"Unable to reach Ollama at {self.base_url}."
-            ) from exc
-
-        except HTTPError as exc:
-            raise LLMProviderError(
-                f"Ollama returned HTTP status {exc.code}."
             ) from exc
 
         latency_ms = (time.perf_counter() - started_at) * 1000
