@@ -98,6 +98,7 @@ RISK_SCORING_STAGE = StageContract(
     input_sources={
         "application": "intake_agent",
         "evidence": "enrichment_agent",
+        "existing_coverage": "case_repository",
     },
     state_writes=("risk_assessment",),
 )
@@ -395,6 +396,8 @@ class UnderwritingOrchestrator:
 
             case = self.repository.save(case)
 
+            existing_coverage = self._existing_coverage(case)
+
             risk_result = self._with_retry(
                 case=case,
                 stage=RISK_SCORING_STAGE,
@@ -409,12 +412,14 @@ class UnderwritingOrchestrator:
                             mode="json"
                         )
                     ),
+                    "existing_coverage": existing_coverage,
                 },
                 operation=lambda: risk_scoring_agent(
                     application=case.application,
                     evidence=enrichment_result.evidence,
                     llm_client=self._metered_llm,
                     evaluation_date=evaluation_date,
+                    existing_coverage=existing_coverage["amount"],
                 ),
             )
 
@@ -528,6 +533,32 @@ class UnderwritingOrchestrator:
         )
 
         return True
+
+    def _existing_coverage(
+        self,
+        case: CaseState,
+    ) -> dict[str, Any]:
+        """
+        Total coverage from the applicant's earlier approved cases.
+
+        Pending cases are not counted here; they are already flagged as
+        possible duplicates and routed to human review.
+        """
+
+        approved = self.repository.find_approved_by_applicant(
+            case.metadata.applicant_key
+        )
+
+        return {
+            "amount": sum(
+                other.application.coverage_amount
+                for other in approved
+            ),
+            "case_ids": [
+                str(other.metadata.case_id)
+                for other in approved
+            ],
+        }
 
     def _with_retry(
         self,

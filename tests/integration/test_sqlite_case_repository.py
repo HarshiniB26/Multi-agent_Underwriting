@@ -132,6 +132,46 @@ def test_find_open_by_applicant_excludes_closed_and_other_applicants(
     ]
 
 
+def test_find_approved_by_applicant_returns_only_approved_completed_cases(
+    repository,
+):
+    def create_case(
+        applicant_key: str,
+        status: CaseStatus,
+        decision: str | None,
+    ) -> CaseState:
+        case = CaseState(
+            metadata=CaseMetadata(applicant_key=applicant_key),
+            status=status,
+            recommendation=(
+                {"recommendation": {"decision": decision}}
+                if decision is not None
+                else None
+            ),
+        )
+        repository.create(case)
+        return case
+
+    first = create_case(
+        "applicant-a", CaseStatus.RECOMMENDATION_COMPLETED, "approve"
+    )
+    create_case("applicant-a", CaseStatus.RECOMMENDATION_COMPLETED, "deny")
+    create_case("applicant-a", CaseStatus.HUMAN_REVIEW, "refer")
+    create_case("applicant-a", CaseStatus.HUMAN_REVIEW, "approve")
+    create_case("applicant-a", CaseStatus.PROCESSING_FAILED, None)
+    create_case("applicant-b", CaseStatus.RECOMMENDATION_COMPLETED, "approve")
+    second = create_case(
+        "applicant-a", CaseStatus.RECOMMENDATION_COMPLETED, "approve"
+    )
+
+    approved = repository.find_approved_by_applicant("applicant-a")
+
+    assert [case.metadata.case_id for case in approved] == [
+        first.metadata.case_id,
+        second.metadata.case_id,
+    ]
+
+
 def test_save_updates_applicant_key(repository):
     case = CaseState()
     repository.create(case)

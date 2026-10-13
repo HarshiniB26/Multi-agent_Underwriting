@@ -115,7 +115,8 @@ one case:
 | Did it fail or retry? | status, attempt, error_type, error_message |
 
 input_sources names the producer of each received value: user_input for
-the submission, otherwise the agent that wrote it. LLM usage is metered
+the submission, case_repository for the applicant's existing approved
+coverage, otherwise the agent that wrote it. LLM usage is metered
 per attempt, so an attempt that fails after a model call (for example on
 unparseable output) is still costed.
 
@@ -141,6 +142,9 @@ Repeat submissions are handled in two ways:
   RECOMMENDATION_COMPLETED or PROCESSING_FAILED): a new case is
   processed, recorded in possible_duplicate_of, and routed to
   HUMAN_REVIEW so an underwriter sees both applications together.
+- Same applicant with earlier approved cases: the new case is processed
+  normally, but their approved coverage is added to the requested amount
+  before the coverage-to-income rules apply.
 
 ## Agent Access Boundaries
 

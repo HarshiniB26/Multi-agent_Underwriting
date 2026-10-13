@@ -5,7 +5,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
-from underwriting.domain.case import CLOSED_CASE_STATUSES, CaseState
+from underwriting.domain.case import (
+    CLOSED_CASE_STATUSES,
+    CaseState,
+    CaseStatus,
+)
+from underwriting.recommendation.models import RecommendationDecision
 from underwriting.repositories.case_repository import (
     CaseAlreadyExistsError,
     CaseNotFoundError,
@@ -242,6 +247,35 @@ class SQLiteCaseRepository(CaseRepository):
                 ORDER BY created_at
                 """,
                 (applicant_key, *closed_statuses),
+            ).fetchall()
+
+        return [
+            CaseState.model_validate_json(row["case_data"])
+            for row in rows
+        ]
+
+    def find_approved_by_applicant(
+        self,
+        applicant_key: str,
+    ) -> list[CaseState]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT case_data
+                FROM underwriting_cases
+                WHERE applicant_key = ?
+                  AND status = ?
+                  AND json_extract(
+                      case_data,
+                      '$.recommendation.recommendation.decision'
+                  ) = ?
+                ORDER BY created_at
+                """,
+                (
+                    applicant_key,
+                    CaseStatus.RECOMMENDATION_COMPLETED.value,
+                    RecommendationDecision.APPROVE.value,
+                ),
             ).fetchall()
 
         return [

@@ -1,12 +1,12 @@
 {
-  "case_id": "1398e61d-315a-4032-993a-e5a4d81a9e91",
-  "trace_id": "a0a3fbfa-f197-44fb-89b3-ec65365ed717",
+  "case_id": "0ac5555f-ff03-47ef-8891-04a91db71540",
+  "trace_id": "5ee3ea6c-1e48-494c-8b43-b62e989b0b39",
   "status": "recommendation_completed",
   "errors": [],
   "recommendation": {
     "recommendation": {
       "recommendation_policy_version": "synthetic-recommendation-v1",
-      "risk_policy_version": "synthetic-life-v2",
+      "risk_policy_version": "synthetic-life-v3",
       "decision": "approve",
       "reason_code": "automated_approval",
       "risk_score": 20,
@@ -31,10 +31,11 @@
     }
   },
   "risk_assessment": {
-    "policy_version": "synthetic-life-v2",
+    "policy_version": "synthetic-life-v3",
     "evaluation_date": "2026-10-08",
     "age": 44,
     "bmi": 26.45,
+    "existing_coverage": 0,
     "coverage_to_income_ratio": 6.25,
     "score": 20,
     "tier": "moderate",
@@ -59,7 +60,7 @@
     "requires_review": false
   },
   "totals": {
-    "duration_ms": 1.0709170019254088,
+    "duration_ms": 1.0822500007634517,
     "input_tokens": 1680,
     "output_tokens": 360,
     "estimated_cost_usd": 0.000468
@@ -70,9 +71,9 @@
       "component": "intake_agent",
       "attempt": 1,
       "status": "success",
-      "started_at": "2026-10-13T06:41:37.679854+00:00",
-      "finished_at": "2026-10-13T06:41:37.679908+00:00",
-      "duration_ms": 0.05166700066183694,
+      "started_at": "2026-10-13T07:34:04.689225+00:00",
+      "finished_at": "2026-10-13T07:34:04.689316+00:00",
+      "duration_ms": 0.08708400127943605,
       "llm_latency_ms": 18.0,
       "model": "fake-model",
       "input_tokens": 420,
@@ -106,7 +107,7 @@
       "produced": {
         "status": "accepted",
         "application": {
-          "application_id": "c5b0036c-d81d-4277-ab8f-5de428520183",
+          "application_id": "4968fe5a-7c32-46cb-bafd-a81d20657ea8",
           "ssn": "[REDACTED]",
           "first_name": "[REDACTED]",
           "last_name": "[REDACTED]",
@@ -143,9 +144,9 @@
       "component": "enrichment_agent",
       "attempt": 1,
       "status": "success",
-      "started_at": "2026-10-13T06:41:37.682920+00:00",
-      "finished_at": "2026-10-13T06:41:37.683815+00:00",
-      "duration_ms": 0.893459000508301,
+      "started_at": "2026-10-13T07:34:04.693117+00:00",
+      "finished_at": "2026-10-13T07:34:04.693967+00:00",
+      "duration_ms": 0.8484160025545862,
       "llm_latency_ms": 18.0,
       "model": "fake-model",
       "input_tokens": 420,
@@ -162,7 +163,7 @@
       ],
       "received": {
         "application": {
-          "application_id": "c5b0036c-d81d-4277-ab8f-5de428520183",
+          "application_id": "4968fe5a-7c32-46cb-bafd-a81d20657ea8",
           "ssn": "[REDACTED]",
           "first_name": "[REDACTED]",
           "last_name": "[REDACTED]",
@@ -238,9 +239,9 @@
       "component": "risk_scoring_agent",
       "attempt": 1,
       "status": "success",
-      "started_at": "2026-10-13T06:41:37.686578+00:00",
-      "finished_at": "2026-10-13T06:41:37.686660+00:00",
-      "duration_ms": 0.08020799941732548,
+      "started_at": "2026-10-13T07:34:04.697311+00:00",
+      "finished_at": "2026-10-13T07:34:04.697414+00:00",
+      "duration_ms": 0.10112499876413494,
       "llm_latency_ms": 18.0,
       "model": "fake-model",
       "input_tokens": 420,
@@ -248,12 +249,13 @@
       "estimated_cost_usd": 0.000117,
       "input_sources": {
         "application": "intake_agent",
-        "evidence": "enrichment_agent"
+        "evidence": "enrichment_agent",
+        "existing_coverage": "case_repository"
       },
       "tools_used": [],
       "received": {
         "application": {
-          "application_id": "c5b0036c-d81d-4277-ab8f-5de428520183",
+          "application_id": "4968fe5a-7c32-46cb-bafd-a81d20657ea8",
           "ssn": "[REDACTED]",
           "first_name": "[REDACTED]",
           "last_name": "[REDACTED]",
@@ -303,14 +305,19 @@
             "income_verified": true,
             "verified_annual_income": 120000
           }
+        },
+        "existing_coverage": {
+          "amount": 0,
+          "case_ids": []
         }
       },
       "produced": {
         "assessment": {
-          "policy_version": "synthetic-life-v2",
+          "policy_version": "synthetic-life-v3",
           "evaluation_date": "2026-10-08",
           "age": 44,
           "bmi": 26.45,
+          "existing_coverage": 0,
           "coverage_to_income_ratio": 6.25,
           "score": 20,
           "tier": "moderate",
@@ -356,9 +363,9 @@
       "component": "recommendation_agent",
       "attempt": 1,
       "status": "success",
-      "started_at": "2026-10-13T06:41:37.689495+00:00",
-      "finished_at": "2026-10-13T06:41:37.689543+00:00",
-      "duration_ms": 0.04558300133794546,
+      "started_at": "2026-10-13T07:34:04.700537+00:00",
+      "finished_at": "2026-10-13T07:34:04.700585+00:00",
+      "duration_ms": 0.04562499816529453,
       "llm_latency_ms": 18.0,
       "model": "fake-model",
       "input_tokens": 420,
@@ -370,10 +377,11 @@
       "tools_used": [],
       "received": {
         "assessment": {
-          "policy_version": "synthetic-life-v2",
+          "policy_version": "synthetic-life-v3",
           "evaluation_date": "2026-10-08",
           "age": 44,
           "bmi": 26.45,
+          "existing_coverage": 0,
           "coverage_to_income_ratio": 6.25,
           "score": 20,
           "tier": "moderate",
@@ -401,7 +409,7 @@
       "produced": {
         "recommendation": {
           "recommendation_policy_version": "synthetic-recommendation-v1",
-          "risk_policy_version": "synthetic-life-v2",
+          "risk_policy_version": "synthetic-life-v3",
           "decision": "approve",
           "reason_code": "automated_approval",
           "risk_score": 20,

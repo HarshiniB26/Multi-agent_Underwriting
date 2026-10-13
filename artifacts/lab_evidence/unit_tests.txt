@@ -1,8 +1,9 @@
-ssssssss................................................................ [ 21%]
-........................................................................ [ 43%]
-........................................................................ [ 64%]
-........................................................................ [ 86%]
-..............................................                           [100%]
+ssssssss................................................................ [ 19%]
+........................................................................ [ 39%]
+........................................................................ [ 59%]
+........................................................................ [ 79%]
+........................................................................ [ 99%]
+.                                                                        [100%]
 ================================ tests coverage ================================
 _______________ coverage: platform linux, python 3.12.15-final-0 _______________
 
@@ -15,7 +16,7 @@ src/underwriting/agents/intake.py                            56      0   100%
 src/underwriting/agents/recommendation.py                    30      0   100%
 src/underwriting/agents/risk_scoring.py                      33      0   100%
 src/underwriting/domain/__init__.py                           0      0   100%
-src/underwriting/domain/application.py                       66      0   100%
+src/underwriting/domain/application.py                       73      0   100%
 src/underwriting/domain/case.py                              33      0   100%
 src/underwriting/enrichment/__init__.py                       0      0   100%
 src/underwriting/enrichment/matching.py                      18      0   100%
@@ -35,15 +36,15 @@ src/underwriting/observability/trace_store.py                15      0   100%
 src/underwriting/recommendation/models.py                    19      0   100%
 src/underwriting/recommendation/policy.py                    13      0   100%
 src/underwriting/repositories/__init__.py                     0      0   100%
-src/underwriting/repositories/case_repository.py             17      0   100%
-src/underwriting/repositories/sqlite_case_repository.py      71      0   100%
+src/underwriting/repositories/case_repository.py             19      0   100%
+src/underwriting/repositories/sqlite_case_repository.py      76      0   100%
 src/underwriting/risk/__init__.py                             0      0   100%
-src/underwriting/risk/models.py                              38      0   100%
-src/underwriting/risk/policy.py                             140      0   100%
+src/underwriting/risk/models.py                              39      0   100%
+src/underwriting/risk/policy.py                             142      0   100%
 src/underwriting/workflow/__init__.py                         0      0   100%
-src/underwriting/workflow/orchestrator.py                   156      0   100%
+src/underwriting/workflow/orchestrator.py                   160      0   100%
 src/underwriting/workflow/transitions.py                     11      0   100%
 ---------------------------------------------------------------------------------------
-TOTAL                                                      1120      0   100%
+TOTAL                                                      1141      0   100%
 Required test coverage of 100.0% reached. Total coverage: 100.00%
-326 passed, 8 skipped in 0.97s
+353 passed, 8 skipped in 1.09s

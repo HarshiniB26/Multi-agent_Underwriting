@@ -52,7 +52,14 @@ class RiskAssessment(BaseModel):
 
     age: int = Field(ge=0)
     bmi: float = Field(gt=0)
-    coverage_to_income_ratio: float = Field(gt=0)
+
+    existing_coverage: int = Field(default=0, ge=0)
+    coverage_to_income_ratio: float = Field(
+        gt=0,
+        description=(
+            "(existing coverage + requested coverage) / annual income"
+        ),
+    )
 
     score: int = Field(ge=0)
     tier: RiskTier

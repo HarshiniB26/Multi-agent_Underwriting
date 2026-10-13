@@ -335,8 +335,13 @@ def main() -> None:
         )
         write_text_trace(text_path, case_name, payload)
 
+    failure_database_path = ARTIFACTS / "failure_underwriting.db"
+
+    if failure_database_path.exists():
+        failure_database_path.unlink()
+
     orchestrator = build_orchestrator(
-        database_path=database_path,
+        database_path=failure_database_path,
         llm_client=TimeoutOnRiskScoringLLMClient(
             happy_path_responses()
         ),

@@ -1,6 +1,6 @@
 {
-  "case_id": "e94ae0b9-f7b8-4d88-adeb-15038ee52aee",
-  "trace_id": "4dd4ab8e-b715-421e-bb4a-84e57978e347",
+  "case_id": "5e345392-7e4c-4bba-b9c2-b96876e0f163",
+  "trace_id": "1f8f8ef8-af97-4425-a435-8f9af0b1b786",
   "status": "processing_failed",
   "errors": [
     "Workflow execution failed: WorkflowExecutionError: risk_scoring failed after 3 attempts: Synthetic risk-scoring timeout."
@@ -8,7 +8,7 @@
   "recommendation": null,
   "risk_assessment": null,
   "totals": {
-    "duration_ms": 1.1842500025522895,
+    "duration_ms": 1.2309570010984316,
     "input_tokens": 840,
     "output_tokens": 180,
     "estimated_cost_usd": 0.000234
@@ -19,9 +19,9 @@
       "component": "intake_agent",
       "attempt": 1,
       "status": "success",
-      "started_at": "2026-10-13T06:41:37.712222+00:00",
-      "finished_at": "2026-10-13T06:41:37.712279+00:00",
-      "duration_ms": 0.045000000682193786,
+      "started_at": "2026-10-13T07:34:04.731481+00:00",
+      "finished_at": "2026-10-13T07:34:04.731567+00:00",
+      "duration_ms": 0.08275000072899275,
       "llm_latency_ms": 18.0,
       "model": "fake-model",
       "input_tokens": 420,
@@ -51,7 +51,7 @@
       "produced": {
         "status": "accepted",
         "application": {
-          "application_id": "6929e4b5-ec28-4a6b-acc7-17c345a1bef5",
+          "application_id": "dcbc3d31-8428-4c5f-bdec-2172b3808672",
           "ssn": "[REDACTED]",
           "first_name": "[REDACTED]",
           "last_name": "[REDACTED]",
@@ -84,9 +84,9 @@
       "component": "enrichment_agent",
       "attempt": 1,
       "status": "success",
-      "started_at": "2026-10-13T06:41:37.715302+00:00",
-      "finished_at": "2026-10-13T06:41:37.716297+00:00",
-      "duration_ms": 0.9928330000548158,
+      "started_at": "2026-10-13T07:34:04.734806+00:00",
+      "finished_at": "2026-10-13T07:34:04.735760+00:00",
+      "duration_ms": 0.9525409986963496,
       "llm_latency_ms": 18.0,
       "model": "fake-model",
       "input_tokens": 420,
@@ -103,7 +103,7 @@
       ],
       "received": {
         "application": {
-          "application_id": "6929e4b5-ec28-4a6b-acc7-17c345a1bef5",
+          "application_id": "dcbc3d31-8428-4c5f-bdec-2172b3808672",
           "ssn": "[REDACTED]",
           "first_name": "[REDACTED]",
           "last_name": "[REDACTED]",
@@ -165,9 +165,9 @@
       "component": "risk_scoring_agent",
       "attempt": 1,
       "status": "failed",
-      "started_at": "2026-10-13T06:41:37.718911+00:00",
-      "finished_at": "2026-10-13T06:41:37.718962+00:00",
-      "duration_ms": 0.04887500108452514,
+      "started_at": "2026-10-13T07:34:04.739402+00:00",
+      "finished_at": "2026-10-13T07:34:04.739471+00:00",
+      "duration_ms": 0.0666250016365666,
       "llm_latency_ms": 0.0,
       "model": null,
       "input_tokens": 0,
@@ -175,12 +175,13 @@
       "estimated_cost_usd": 0.0,
       "input_sources": {
         "application": "intake_agent",
-        "evidence": "enrichment_agent"
+        "evidence": "enrichment_agent",
+        "existing_coverage": "case_repository"
       },
       "tools_used": [],
       "received": {
         "application": {
-          "application_id": "6929e4b5-ec28-4a6b-acc7-17c345a1bef5",
+          "application_id": "dcbc3d31-8428-4c5f-bdec-2172b3808672",
           "ssn": "[REDACTED]",
           "first_name": "[REDACTED]",
           "last_name": "[REDACTED]",
@@ -216,6 +217,10 @@
             "income_verified": true,
             "verified_annual_income": 90000
           }
+        },
+        "existing_coverage": {
+          "amount": 0,
+          "case_ids": []
         }
       },
       "produced": {},
@@ -228,9 +233,9 @@
       "component": "risk_scoring_agent",
       "attempt": 2,
       "status": "failed",
-      "started_at": "2026-10-13T06:41:37.720496+00:00",
-      "finished_at": "2026-10-13T06:41:37.720553+00:00",
-      "duration_ms": 0.05454200072563253,
+      "started_at": "2026-10-13T07:34:04.741048+00:00",
+      "finished_at": "2026-10-13T07:34:04.741118+00:00",
+      "duration_ms": 0.06795800072723068,
       "llm_latency_ms": 0.0,
       "model": null,
       "input_tokens": 0,
@@ -238,12 +243,13 @@
       "estimated_cost_usd": 0.0,
       "input_sources": {
         "application": "intake_agent",
-        "evidence": "enrichment_agent"
+        "evidence": "enrichment_agent",
+        "existing_coverage": "case_repository"
       },
       "tools_used": [],
       "received": {
         "application": {
-          "application_id": "6929e4b5-ec28-4a6b-acc7-17c345a1bef5",
+          "application_id": "dcbc3d31-8428-4c5f-bdec-2172b3808672",
           "ssn": "[REDACTED]",
           "first_name": "[REDACTED]",
           "last_name": "[REDACTED]",
@@ -279,6 +285,10 @@
             "income_verified": true,
             "verified_annual_income": 90000
           }
+        },
+        "existing_coverage": {
+          "amount": 0,
+          "case_ids": []
         }
       },
       "produced": {},
@@ -291,9 +301,9 @@
       "component": "risk_scoring_agent",
       "attempt": 3,
       "status": "failed",
-      "started_at": "2026-10-13T06:41:37.721882+00:00",
-      "finished_at": "2026-10-13T06:41:37.721927+00:00",
-      "duration_ms": 0.043000000005122274,
+      "started_at": "2026-10-13T07:34:04.742831+00:00",
+      "finished_at": "2026-10-13T07:34:04.742894+00:00",
+      "duration_ms": 0.06108299930929206,
       "llm_latency_ms": 0.0,
       "model": null,
       "input_tokens": 0,
@@ -301,12 +311,13 @@
       "estimated_cost_usd": 0.0,
       "input_sources": {
         "application": "intake_agent",
-        "evidence": "enrichment_agent"
+        "evidence": "enrichment_agent",
+        "existing_coverage": "case_repository"
       },
       "tools_used": [],
       "received": {
         "application": {
-          "application_id": "6929e4b5-ec28-4a6b-acc7-17c345a1bef5",
+          "application_id": "dcbc3d31-8428-4c5f-bdec-2172b3808672",
           "ssn": "[REDACTED]",
           "first_name": "[REDACTED]",
           "last_name": "[REDACTED]",
@@ -342,6 +353,10 @@
             "income_verified": true,
             "verified_annual_income": 90000
           }
+        },
+        "existing_coverage": {
+          "amount": 0,
+          "case_ids": []
         }
       },
       "produced": {},

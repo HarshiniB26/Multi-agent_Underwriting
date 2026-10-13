@@ -1537,16 +1537,129 @@ def test_duplicate_flag_is_persisted_when_intake_needs_review(
     assert persisted == second
 
 
+def application_with_coverage(coverage_amount: int) -> dict:
+    application = raw_application()
+    application["coverage_amount"] = coverage_amount
+    return application
+
+
 def test_same_applicant_after_closed_case_is_not_flagged(
     tmp_path,
 ):
-    first = run_case(tmp_path, happy_path_responses())
+    first = run_case(
+        tmp_path,
+        happy_path_responses(),
+        application_with_coverage(200_000),
+    )
     assert first.status == CaseStatus.RECOMMENDATION_COMPLETED
 
-    second = run_case(tmp_path, happy_path_responses())
+    second = run_case(
+        tmp_path,
+        happy_path_responses(),
+        application_with_coverage(200_000),
+    )
 
     assert second.status == CaseStatus.RECOMMENDATION_COMPLETED
     assert second.possible_duplicate_of == []
+
+
+def test_existing_approved_coverage_counts_toward_income_limit(
+    tmp_path,
+):
+    first = run_case(tmp_path, happy_path_responses())
+    assert first.recommendation["recommendation"]["decision"] == "approve"
+
+    second = run_case(tmp_path, happy_path_responses())
+
+    assert second.status == CaseStatus.HUMAN_REVIEW
+    assert second.possible_duplicate_of == []
+    assert second.risk_assessment["existing_coverage"] == 500_000
+    assert second.risk_assessment["coverage_to_income_ratio"] == 11.11
+    assert "excessive_coverage_ratio" in (
+        second.risk_assessment["review_flags"]
+    )
+    assert second.recommendation["recommendation"]["decision"] == "refer"
+
+
+def test_existing_coverage_moves_ratio_into_a_higher_band(
+    tmp_path,
+):
+    run_case(
+        tmp_path,
+        happy_path_responses(),
+        application_with_coverage(200_000),
+    )
+
+    second = run_case(
+        tmp_path,
+        happy_path_responses(),
+        application_with_coverage(300_000),
+    )
+
+    assert second.status == CaseStatus.RECOMMENDATION_COMPLETED
+    assert second.risk_assessment["coverage_to_income_ratio"] == 5.56
+    assert "COVERAGE_RATIO_5_TO_8" in [
+        factor["code"]
+        for factor in second.risk_assessment["risk_factors"]
+    ]
+
+
+def test_cases_that_were_not_approved_do_not_count_as_coverage(
+    tmp_path,
+):
+    referred = run_case(tmp_path, needs_review_responses())
+    failed = run_case(
+        tmp_path,
+        happy_path_responses()[:3] + ["not json"],
+    )
+
+    assert referred.status == CaseStatus.HUMAN_REVIEW
+    assert failed.status == CaseStatus.PROCESSING_FAILED
+
+    third = run_case(
+        tmp_path,
+        happy_path_responses(),
+        application_with_coverage(200_000),
+    )
+
+    assert third.risk_assessment["existing_coverage"] == 0
+
+
+def test_risk_trace_shows_which_cases_supplied_existing_coverage(
+    tmp_path,
+):
+    first = run_case(
+        tmp_path,
+        happy_path_responses(),
+        application_with_coverage(200_000),
+    )
+
+    trace_store = InMemoryTraceStore()
+    second = build_orchestrator(
+        tmp_path=tmp_path,
+        llm_client=SequentialFakeLLMClient(happy_path_responses()),
+        trace_store=trace_store,
+    ).start_case(
+        application_with_coverage(200_000),
+        evaluation_date=EVALUATION_DATE,
+    )
+
+    risk_trace = next(
+        trace
+        for trace in trace_store.get_by_trace_id(
+            second.metadata.trace_id
+        )
+        if trace.stage == "risk_scoring"
+    )
+
+    assert risk_trace.received["existing_coverage"] == {
+        "amount": 200_000,
+        "case_ids": [str(first.metadata.case_id)],
+    }
+    assert (
+        risk_trace.input_sources["existing_coverage"]
+        == "case_repository"
+    )
 
 
 def test_different_applicant_is_not_flagged(
@@ -1666,6 +1779,7 @@ def test_traces_record_which_agent_ran_and_data_lineage(
             {
                 "application": "intake_agent",
                 "evidence": "enrichment_agent",
+                "existing_coverage": "case_repository",
             },
             ["risk_assessment"],
         ),

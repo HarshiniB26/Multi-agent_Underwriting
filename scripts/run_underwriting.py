@@ -12,6 +12,7 @@ from underwriting.enrichment.synthetic_providers import (
 )
 from underwriting.enrichment.synthetic_store import SyntheticDataStore
 from underwriting.llm.ollama_client import OllamaLLMClient
+from underwriting.observability.models import TraceRecord
 from underwriting.observability.sqlite_trace_store import (
     SQLiteTraceStore,
 )
@@ -142,6 +143,7 @@ def print_case_result(
     case_name: str,
     result,
     trace_store: SQLiteTraceStore,
+    show_trace: bool = False,
 ) -> None:
     print()
     print("=" * 72)
@@ -173,10 +175,27 @@ def print_case_result(
             "risk_score: "
             f"{result.risk_assessment.get('score')}"
         )
+
+        if result.risk_assessment.get("existing_coverage"):
+            print(
+                "existing_coverage: "
+                f"{result.risk_assessment['existing_coverage']}"
+            )
+
+        print(
+            "coverage_to_income_ratio: "
+            f"{result.risk_assessment.get('coverage_to_income_ratio')}"
+        )
         print(
             "requires_review: "
             f"{result.risk_assessment.get('requires_review')}"
         )
+
+        if result.risk_assessment.get("review_flags"):
+            print(
+                "review_flags: "
+                + ", ".join(result.risk_assessment["review_flags"])
+            )
 
     if result.recommendation is not None:
         recommendation = result.recommendation.get(
@@ -204,19 +223,42 @@ def print_case_result(
     )
 
     print()
-    print("TRACE")
-
-    total_duration_ms = 0.0
-    total_input_tokens = 0
-    total_output_tokens = 0
-    total_cost_usd = 0.0
+    print("STAGES")
 
     for trace in traces:
-        total_duration_ms += trace.duration_ms
-        total_input_tokens += trace.input_tokens
-        total_output_tokens += trace.output_tokens
-        total_cost_usd += trace.estimated_cost_usd
+        print(
+            f"  {trace.stage:<16} "
+            f"{trace.status.value:<7} "
+            f"attempt={trace.attempt} "
+            f"{trace.duration_ms / 1000:6.2f}s "
+            f"tokens={trace.input_tokens}/{trace.output_tokens}"
+            + (
+                f"  error={trace.error_type}"
+                if trace.error_type is not None
+                else ""
+            )
+        )
 
+    print(
+        f"  {'total':<16} "
+        f"{'':<7} "
+        f"{'':<9} "
+        f"{sum(t.duration_ms for t in traces) / 1000:6.2f}s "
+        f"tokens={sum(t.input_tokens for t in traces)}/"
+        f"{sum(t.output_tokens for t in traces)} "
+        "equiv_cloud_cost_usd="
+        f"{sum(t.estimated_cost_usd for t in traces):.6f}"
+    )
+
+    if show_trace:
+        print_full_trace(traces)
+
+
+def print_full_trace(traces: list[TraceRecord]) -> None:
+    print()
+    print("TRACE")
+
+    for trace in traces:
         print(
             f"{trace.stage:<16} "
             f"component={trace.component or '-'} "
@@ -260,26 +302,6 @@ def print_case_result(
                 f"{trace.error_message}"
             )
 
-    print()
-    print(
-        f"total_stage_duration_ms: "
-        f"{total_duration_ms:.2f}"
-    )
-
-    print(
-        f"total_input_tokens: "
-        f"{total_input_tokens}"
-    )
-
-    print(
-        f"total_output_tokens: "
-        f"{total_output_tokens}"
-    )
-    print(
-        f"total_equiv_cloud_cost_usd (local inference is free): "
-        f"{total_cost_usd:.8f}"
-    )
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -304,6 +326,15 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=DEFAULT_DATABASE_PATH,
         help="SQLite database output path.",
+    )
+
+    parser.add_argument(
+        "--trace",
+        action="store_true",
+        help=(
+            "Print each stage's full received/produced payloads. "
+            "Traces are always saved to the database either way."
+        ),
     )
 
     parser.add_argument(
@@ -352,6 +383,7 @@ def main() -> None:
             case_name=case_name,
             result=result,
             trace_store=orchestrator.trace_store,
+            show_trace=args.trace,
         )
 
 

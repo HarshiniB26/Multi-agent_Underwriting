@@ -21,7 +21,7 @@ from underwriting.risk.models import (
     RiskTier,
 )
 
-POLICY_VERSION = "synthetic-life-v2"
+POLICY_VERSION = "synthetic-life-v3"
 
 
 _MEDICAL_CONDITION_POINTS: dict[str, int] = {
@@ -368,13 +368,22 @@ def evaluate_policy(
     application: Application,
     evidence: EnrichmentEvidence,
     evaluation_date: date,
+    existing_coverage: int = 0,
 ) -> RiskAssessment:
     """
     Evaluate the synthetic underwriting policy deterministically.
 
-    The same application, evidence, evaluation date, and policy version
-    always produce the same assessment.
+    existing_coverage is coverage this applicant already holds from
+    earlier approved cases. It is added to the requested amount before
+    the coverage-to-income rules apply, so splitting one large request
+    into several smaller applications does not avoid review.
+
+    The same inputs and policy version always produce the same
+    assessment.
     """
+
+    if existing_coverage < 0:
+        raise ValueError("existing_coverage cannot be negative.")
 
     age = calculate_age(
         application.date_of_birth,
@@ -388,7 +397,7 @@ def evaluate_policy(
 
     coverage_ratio = (
         calculate_coverage_to_income_ratio(
-            application.coverage_amount,
+            application.coverage_amount + existing_coverage,
             application.annual_income,
         )
     )
@@ -447,6 +456,7 @@ def evaluate_policy(
         evaluation_date=evaluation_date,
         age=age,
         bmi=round(bmi, 2),
+        existing_coverage=existing_coverage,
         coverage_to_income_ratio=round(
             coverage_ratio,
             2,

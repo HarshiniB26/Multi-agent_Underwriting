@@ -127,6 +127,39 @@ def test_clean_case_is_low_risk():
     assert assessment.review_flags == []
 
 
+def test_existing_coverage_is_added_before_ratio_rules():
+    alone = evaluate_policy(
+        build_application(coverage_amount=500_000),
+        clean_evidence(),
+        EVALUATION_DATE,
+    )
+    with_existing = evaluate_policy(
+        build_application(coverage_amount=500_000),
+        clean_evidence(),
+        EVALUATION_DATE,
+        existing_coverage=600_000,
+    )
+
+    assert alone.existing_coverage == 0
+    assert alone.coverage_to_income_ratio == 5.0
+    assert alone.requires_review is False
+
+    assert with_existing.existing_coverage == 600_000
+    assert with_existing.coverage_to_income_ratio == 11.0
+    assert ReviewFlag.EXCESSIVE_COVERAGE_RATIO in with_existing.review_flags
+    assert with_existing.requires_review is True
+
+
+def test_negative_existing_coverage_is_rejected():
+    with pytest.raises(ValueError, match="cannot be negative"):
+        evaluate_policy(
+            build_application(),
+            clean_evidence(),
+            EVALUATION_DATE,
+            existing_coverage=-1,
+        )
+
+
 def test_age_40_adds_five_points():
     application = build_application(
         date_of_birth=date(1986, 10, 8)

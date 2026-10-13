@@ -55,7 +55,13 @@ BMI is used only as a synthetic coursework risk feature.
 
 Coverage-to-income ratio is calculated as:
 
-requested coverage / annual income
+(existing coverage + requested coverage) / annual income
+
+Existing coverage is the total coverage from the applicant's earlier
+cases that completed with an APPROVE recommendation, matched by
+applicant key. Pending, referred, denied, and failed cases do not count.
+Including it means one large request cannot avoid review by being split
+into several smaller applications.
 
 This is used as a synthetic financial proportionality indicator.
 
@@ -144,6 +150,10 @@ diagnosis and its treatment.
 
 Coverage above ten times annual income is not assigned arbitrary
 additional risk points. It requires policy review.
+
+For example, with $90,000 income, a first $500,000 application is 5.6x
+and can be approved. A second $500,000 application from the same person
+is 11.1x ($1,000,000 total) and requires review.
 
 ## Evidence Quality Rules
 

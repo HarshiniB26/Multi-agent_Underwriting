@@ -53,6 +53,9 @@ Final status is `recommendation_completed`, `human_review`, or
 - A new application from someone who already has an open case is
   processed, recorded in `possible_duplicate_of`, and sent to human
   review.
+- Coverage from the applicant's earlier approved cases is added to the
+  new request before the coverage-to-income rules apply, so a second
+  application can push the total over 10x income and trigger review.
 
 ## State and memory
 
@@ -99,6 +102,10 @@ docs, and key source files into `deliverable/assignment_deliverable.pdf`.
 ```bash
 python scripts/run_underwriting.py --cases case_01 case_02 case_03
 ```
+
+Prints each case's result and a one-line summary per stage. Add
+`--trace` to also print every stage's full (PII-masked) inputs and
+outputs. Traces are saved to the database either way.
 
 ## Cost / latency write-up
 

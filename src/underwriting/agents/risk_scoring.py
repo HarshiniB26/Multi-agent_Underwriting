@@ -184,6 +184,7 @@ def risk_scoring_agent(
     evidence: EnrichmentEvidence,
     llm_client: LLMClient,
     evaluation_date: date | None = None,
+    existing_coverage: int = 0,
 ) -> RiskScoringResult:
     """
     Execute deterministic risk scoring followed by semantic
@@ -196,6 +197,7 @@ def risk_scoring_agent(
         application=application,
         evidence=evidence,
         evaluation_date=evaluation_date or date.today(),
+        existing_coverage=existing_coverage,
     )
 
     llm_response = llm_client.generate(

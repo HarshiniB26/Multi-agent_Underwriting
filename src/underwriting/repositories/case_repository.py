@@ -64,3 +64,11 @@ class CaseRepository(ABC):
     ) -> list[CaseState]:
         """Return the applicant's cases that are not in a closed status."""
         raise NotImplementedError
+
+    @abstractmethod
+    def find_approved_by_applicant(
+        self,
+        applicant_key: str,
+    ) -> list[CaseState]:
+        """Return the applicant's completed cases that were approved."""
+        raise NotImplementedError
